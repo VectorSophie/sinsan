@@ -1,0 +1,14 @@
+{
+  "name": "@sinsan/model-runtime",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-or-later",
+  "description": "Browser (Worker-hosted) INT8 model loader and hand-written float32 tensor ops for the Sinsan Tiny Baseline network - no ONNX Runtime, no WebGPU, per docs/ARCHITECTURE.md.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}

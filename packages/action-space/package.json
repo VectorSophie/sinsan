@@ -1,0 +1,17 @@
+{
+  "name": "@sinsan/action-space",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-or-later",
+  "description": "90-origin x 60-template + pass move<->action encoding, shared by training and the browser runtime.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@sinsan/rules": "*"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}

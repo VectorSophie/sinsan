@@ -1,0 +1,103 @@
+/*
+ * Sinsan board theme. Assets vendored under /assets (see THIRD_PARTY_NOTICES.md):
+ *   - board: pychess-variants JanggiWood.png (AGPL-3.0-or-later)
+ *   - pieces: pychess-variants/Kadagaden "Ka_wooden" set (CC BY 4.0), blue = Cho, red = Han
+ *
+ * chessgroundx ships its own base CSS (position:absolute layout for cg-board/square/piece) that
+ * must be loaded first - without it, squares/pieces/coordinate labels render in normal document
+ * flow instead of an absolutely-positioned board. Its bundled square/piece sizing (12.5%, for a
+ * standard 8x8 board) is then overridden below for Sinsan's 9-wide x 10-tall board. Piece
+ * *position* is computed dynamically by chessgroundx regardless of board size, so only sizing
+ * needs overriding, not the position logic.
+ */
+@import 'chessgroundx/assets/chessground.base.css';
+
+.sinsan-board {
+  width: min(90vw, 70vh);
+  aspect-ratio: 9 / 10;
+}
+
+.sinsan-board cg-board {
+  background-image: url('/assets/board/JanggiWood.png');
+  /* JanggiWood.png is a square (844x844) image with its 9x10 grid baked in as fractions of width
+     and height independently (measured: 9 file-lines at (i+0.5)/9 of width, 10 rank-lines at
+     (i+0.5)/10 of height). chessgroundx's base CSS defaults cg-board to background-size:cover,
+     which preserves the image's own aspect ratio and crops it to fit - since our board container
+     is 9:10, not square, that crop desyncs the baked-in grid from chessground's logical cell
+     grid, worse toward the right/bottom edge. Stretching independently on each axis keeps every
+     grid line's fractional position exactly matching the CSS cell division above. */
+  background-size: 100% 100%;
+}
+
+.sinsan-board cg-board square {
+  width: calc(100% / 9);
+  height: calc(100% / 10);
+}
+
+.sinsan-board piece {
+  width: calc(100% / 9);
+  height: calc(100% / 10);
+  background-size: 80%;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+
+.sinsan-board square.last-move {
+  background-color: rgba(160, 130, 60, 0.35);
+}
+
+.sinsan-board square.selected {
+  background-color: rgba(160, 130, 60, 0.5);
+}
+
+.sinsan-board square.move-dest {
+  background: radial-gradient(rgba(40, 30, 20, 0.4) 22%, transparent 24%);
+}
+
+.sinsan-board square.oc.move-dest {
+  background: radial-gradient(transparent 0%, transparent 79%, rgba(40, 30, 20, 0.4) 80%);
+}
+
+.sinsan-board square.check {
+  background: radial-gradient(ellipse at center, rgba(200, 40, 20, 0.9) 0%, rgba(200, 40, 20, 0) 70%);
+}
+
+@keyframes sinsan-piece-fade {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+}
+
+.sinsan-board piece.fading {
+  animation: sinsan-piece-fade 120ms ease-out forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sinsan-board piece.fading {
+    animation: none;
+    opacity: 0;
+  }
+}
+
+/* role x color -> vendored SVG. Cho = blue, Han = red (matches pychess-variants' own convention,
+   confirmed consistent with our visual identity in docs/PRODUCT_VISION.md). */
+.sinsan-board piece.k-piece.white { background-image: url('/assets/pieces/janggihb-ka-wooden/blue_king.svg'); }
+.sinsan-board piece.a-piece.white { background-image: url('/assets/pieces/janggihb-ka-wooden/blue_advisor.svg'); }
+.sinsan-board piece.c-piece.white { background-image: url('/assets/pieces/janggihb-ka-wooden/blue_cannon.svg'); }
+.sinsan-board piece.r-piece.white { background-image: url('/assets/pieces/janggihb-ka-wooden/blue_chariot.svg'); }
+.sinsan-board piece.b-piece.white { background-image: url('/assets/pieces/janggihb-ka-wooden/blue_elephant.svg'); }
+.sinsan-board piece.n-piece.white { background-image: url('/assets/pieces/janggihb-ka-wooden/blue_horse.svg'); }
+.sinsan-board piece.p-piece.white { background-image: url('/assets/pieces/janggihb-ka-wooden/blue_pawn.svg'); }
+
+.sinsan-board piece.k-piece.black { background-image: url('/assets/pieces/janggihb-ka-wooden/red_king.svg'); }
+.sinsan-board piece.a-piece.black { background-image: url('/assets/pieces/janggihb-ka-wooden/red_advisor.svg'); }
+.sinsan-board piece.c-piece.black { background-image: url('/assets/pieces/janggihb-ka-wooden/red_cannon.svg'); }
+.sinsan-board piece.r-piece.black { background-image: url('/assets/pieces/janggihb-ka-wooden/red_chariot.svg'); }
+.sinsan-board piece.b-piece.black { background-image: url('/assets/pieces/janggihb-ka-wooden/red_elephant.svg'); }
+.sinsan-board piece.n-piece.black { background-image: url('/assets/pieces/janggihb-ka-wooden/red_horse.svg'); }
+.sinsan-board piece.p-piece.black { background-image: url('/assets/pieces/janggihb-ka-wooden/red_pawn.svg'); }

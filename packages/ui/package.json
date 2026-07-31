@@ -1,0 +1,19 @@
+{
+  "name": "@sinsan/ui",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-or-later",
+  "description": "Board rendering for Sinsan, wrapping chessgroundx for a 9x10 Janggi board.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./theme.css": "./src/theme.css"
+  },
+  "dependencies": {
+    "@sinsan/rules": "*",
+    "chessgroundx": "^10.7.5"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "name": "@sinsan/web",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "license": "AGPL-3.0-or-later",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@sinsan/action-space": "*",
+    "@sinsan/model-runtime": "*",
+    "@sinsan/rules": "*",
+    "@sinsan/search": "*",
+    "@sinsan/ui": "*",
+    "chessgroundx": "^10.7.5"
+  },
+  "devDependencies": {
+    "typescript": "~6.0.2",
+    "vite": "^8.2.0"
+  }
+}

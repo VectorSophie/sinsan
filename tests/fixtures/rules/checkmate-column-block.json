@@ -1,0 +1,6 @@
+{
+  "description": "Cho general boxed in on its palace's edge square with all three escape squares (up, left-corner, right-corner) covered by three Han chariots on adjacent columns. Minimal forced-mate position.",
+  "position": "9/4k4/9/9/9/9/3rrr3/9/9/4K4 w kja masang-sangma masang-sangma 0 1",
+  "expectedGameResult": { "winner": "han", "kind": "checkmate" },
+  "expectedLegalMoveCount": 0
+}
