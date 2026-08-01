@@ -96,7 +96,17 @@ against assuming informal English names online are standardized:
 - Check / checkmate / resignation / timeout: standard.
 - Bikjang: native concept — both generals facing each other on an open file
   with no piece between them; handling (draw vs. adjudication trigger)
-  depends on the active `RuleProfile`.
+  depends on the active `RuleProfile`. **Also restricts move legality, not
+  just game-end detection** — confirmed via differential testing against
+  pyffish (10,000 positions, 0 mismatches after this fix; see "Confirmed
+  finding" below): under `kja`/`traditional`, if bikjang already exists in
+  the current position, every non-pass move that fails to resolve it
+  (i.e. still leaves the two generals facing after the move) is illegal.
+  Passing remains legal regardless. Creating bikjang from a position that
+  did *not* already have it is unrestricted — only *failing to escape* an
+  existing bikjang is illegal, not creating one. `modern`/`casual` never
+  apply this restriction. Implemented in `packages/rules/src/rules.ts`'s
+  `generateLegalMoves`, tested in `tests/rules/game-result.test.ts`.
 - Repetition / perpetual check: profile-dependent thresholds (see table
   above); `perpetualCheckIllegal=true` confirmed as a Fairy-Stockfish default
   across all four flavors.
@@ -114,9 +124,10 @@ historically a real bug source, per GitHub issues #40/#186/#198 from
 2019-2020), `tests/fixtures/rules/` must include at least one fixture
 position per profile that produces a *different* legal-move set or game
 result depending on which `RuleProfile` is active (e.g., a bikjang position
-that's a draw under `traditional` but not under `kja`). A rules engine that
-passes tests only under one profile has not actually verified profile
-correctness.
+that's a draw and move-restricted under `kja`/`traditional` but unrestricted
+under `modern`/`casual` — see `tests/rules/game-result.test.ts`). A rules
+engine that passes tests only under one profile has not actually verified
+profile correctness.
 
 ## Verification plan
 
@@ -125,5 +136,24 @@ Per Section 8.4: unit tests per piece/rule, fixed regression fixtures under
 legality/adjudication only — confirmed in `REFERENCES.md` that `pyffish`
 does not expose search/eval, so it's exactly suited to this role and nothing
 more). Mismatches auto-save a minimal repro under `artifacts/rule-mismatches/`
-per the spec; none have been generated yet since the rules engine itself is
-Phase 1, not Phase 0.
+per the spec (`tests/differential/generate-cases.ts` + `compare.py`).
+
+### Confirmed finding: bikjang restricts move legality (fixed)
+
+Differential testing against real gameplay (random-legal-move games across
+all four `RuleProfile`s) found a genuine rules-engine gap, not a false
+positive: an early version of `generateLegalMoves` allowed dozens of moves
+in positions where bikjang already existed, while pyffish restricted the
+side to move to only interposition or pass. A first fix attempt was too
+broad (rejected any non-pass move landing in bikjang, including from a
+*clean* position — pyffish disagreed, since creating bikjang is legal, only
+failing to escape an existing one isn't) and was caught by the same
+differential harness surfacing a new counterexample in the *opposite*
+direction (`pyffish_only` moves our engine wrongly rejected). The corrected
+rule — resolve-or-pass, only when bikjang already exists — was verified
+with **10,000 random positions across all four profiles, 0 mismatches**.
+This is exactly the research→hypothesis→measurement→decision loop the
+project asks for, not assumed correctness: two rounds of real
+counterexamples were needed before the rule was right. See
+`packages/rules/src/rules.ts`'s `generateLegalMoves` doc comment for the
+full technical trail.

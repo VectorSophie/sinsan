@@ -1,0 +1,286 @@
+{
+  "format_version": 1,
+  "model_name": "sinsan-baseline-v0",
+  "architecture": {
+    "channels": 48,
+    "blocks": 6,
+    "kind": "main-candidate"
+  },
+  "input_shape": [
+    15,
+    10,
+    9
+  ],
+  "policy_shape": [
+    5401
+  ],
+  "parameter_count": 293746,
+  "quantization": "int8-per-output-channel-symmetric-weight-only",
+  "weights_bytes": 298800,
+  "sha256": "8dc34095f2a17dbefafb25d24dec0e480dccda476e5ad01fb8e513200bd21d24",
+  "training_run": "phase5-baseline",
+  "rule_profile": "kja",
+  "layers": [
+    {
+      "name": "stem",
+      "type": "conv2d",
+      "weight_shape": [
+        48,
+        15,
+        3,
+        3
+      ],
+      "weight_offset": 0,
+      "weight_bytes": 6480,
+      "scale_offset": 6480,
+      "bias_offset": 6672,
+      "padding": 1
+    },
+    {
+      "name": "tower.0.conv1",
+      "type": "conv2d",
+      "weight_shape": [
+        48,
+        48,
+        3,
+        3
+      ],
+      "weight_offset": 6864,
+      "weight_bytes": 20736,
+      "scale_offset": 27600,
+      "bias_offset": 27792,
+      "padding": 1
+    },
+    {
+      "name": "tower.0.conv2",
+      "type": "conv2d",
+      "weight_shape": [
+        48,
+        48,
+        3,
+        3
+      ],
+      "weight_offset": 27984,
+      "weight_bytes": 20736,
+      "scale_offset": 48720,
+      "bias_offset": 48912,
+      "padding": 1
+    },
+    {
+      "name": "tower.1.conv1",
+      "type": "conv2d",
+      "weight_shape": [
+        48,
+        48,
+        3,
+        3
+      ],
+      "weight_offset": 49104,
+      "weight_bytes": 20736,
+      "scale_offset": 69840,
+      "bias_offset": 70032,
+      "padding": 1
+    },
+    {
+      "name": "tower.1.conv2",
+      "type": "conv2d",
+      "weight_shape": [
+        48,
+        48,
+        3,
+        3
+      ],
+      "weight_offset": 70224,
+      "weight_bytes": 20736,
+      "scale_offset": 90960,
+      "bias_offset": 91152,
+      "padding": 1
+    },
+    {
+      "name": "tower.2.conv1",
+      "type": "conv2d",
+      "weight_shape": [
+        48,
+        48,
+        3,
+        3
+      ],
+      "weight_offset": 91344,
+      "weight_bytes": 20736,
+      "scale_offset": 112080,
+      "bias_offset": 112272,
+      "padding": 1
+    },
+    {
+      "name": "tower.2.conv2",
+      "type": "conv2d",
+      "weight_shape": [
+        48,
+        48,
+        3,
+        3
+      ],
+      "weight_offset": 112464,
+      "weight_bytes": 20736,
+      "scale_offset": 133200,
+      "bias_offset": 133392,
+      "padding": 1
+    },
+    {
+      "name": "tower.3.conv1",
+      "type": "conv2d",
+      "weight_shape": [
+        48,
+        48,
+        3,
+        3
+      ],
+      "weight_offset": 133584,
+      "weight_bytes": 20736,
+      "scale_offset": 154320,
+      "bias_offset": 154512,
+      "padding": 1
+    },
+    {
+      "name": "tower.3.conv2",
+      "type": "conv2d",
+      "weight_shape": [
+        48,
+        48,
+        3,
+        3
+      ],
+      "weight_offset": 154704,
+      "weight_bytes": 20736,
+      "scale_offset": 175440,
+      "bias_offset": 175632,
+      "padding": 1
+    },
+    {
+      "name": "tower.4.conv1",
+      "type": "conv2d",
+      "weight_shape": [
+        48,
+        48,
+        3,
+        3
+      ],
+      "weight_offset": 175824,
+      "weight_bytes": 20736,
+      "scale_offset": 196560,
+      "bias_offset": 196752,
+      "padding": 1
+    },
+    {
+      "name": "tower.4.conv2",
+      "type": "conv2d",
+      "weight_shape": [
+        48,
+        48,
+        3,
+        3
+      ],
+      "weight_offset": 196944,
+      "weight_bytes": 20736,
+      "scale_offset": 217680,
+      "bias_offset": 217872,
+      "padding": 1
+    },
+    {
+      "name": "tower.5.conv1",
+      "type": "conv2d",
+      "weight_shape": [
+        48,
+        48,
+        3,
+        3
+      ],
+      "weight_offset": 218064,
+      "weight_bytes": 20736,
+      "scale_offset": 238800,
+      "bias_offset": 238992,
+      "padding": 1
+    },
+    {
+      "name": "tower.5.conv2",
+      "type": "conv2d",
+      "weight_shape": [
+        48,
+        48,
+        3,
+        3
+      ],
+      "weight_offset": 239184,
+      "weight_bytes": 20736,
+      "scale_offset": 259920,
+      "bias_offset": 260112,
+      "padding": 1
+    },
+    {
+      "name": "policy_conv",
+      "type": "conv2d",
+      "weight_shape": [
+        60,
+        48,
+        3,
+        3
+      ],
+      "weight_offset": 260304,
+      "weight_bytes": 25920,
+      "scale_offset": 286224,
+      "bias_offset": 286464,
+      "padding": 1
+    },
+    {
+      "name": "pass_head",
+      "type": "linear",
+      "weight_shape": [
+        1,
+        48
+      ],
+      "weight_offset": 286704,
+      "weight_bytes": 48,
+      "scale_offset": 286752,
+      "bias_offset": 286756
+    },
+    {
+      "name": "value_conv",
+      "type": "conv2d",
+      "weight_shape": [
+        4,
+        48,
+        1,
+        1
+      ],
+      "weight_offset": 286760,
+      "weight_bytes": 192,
+      "scale_offset": 286952,
+      "bias_offset": 286968,
+      "padding": 0
+    },
+    {
+      "name": "value_fc1",
+      "type": "linear",
+      "weight_shape": [
+        32,
+        360
+      ],
+      "weight_offset": 286984,
+      "weight_bytes": 11520,
+      "scale_offset": 298504,
+      "bias_offset": 298632
+    },
+    {
+      "name": "value_fc2",
+      "type": "linear",
+      "weight_shape": [
+        1,
+        32
+      ],
+      "weight_offset": 298760,
+      "weight_bytes": 32,
+      "scale_offset": 298792,
+      "bias_offset": 298796
+    }
+  ]
+}

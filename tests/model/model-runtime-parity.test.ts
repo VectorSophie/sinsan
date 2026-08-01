@@ -6,11 +6,15 @@ import { fileURLToPath } from 'node:url';
 import { SinsanModel, verifyWeightsDigest } from '../../packages/model-runtime/src/index.ts';
 import type { ModelManifest } from '../../packages/model-runtime/src/index.ts';
 
+// Defaults to the Phase 4 smoke model; set SINSAN_MODEL_NAME=sinsan-baseline-v0 (or whatever
+// --model-name you exported) to run this same parity check against a Phase 5+ export instead -
+// both are produced by the same training/export/export.py, just different --channels/--blocks.
+const modelName = process.env.SINSAN_MODEL_NAME ?? 'sinsan-smoke-v0';
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const manifest: ModelManifest = JSON.parse(
-  readFileSync(join(repoRoot, 'public', 'model', 'sinsan-smoke-v0.json'), 'utf8'),
+  readFileSync(join(repoRoot, 'public', 'model', `${modelName}.json`), 'utf8'),
 );
-const weightsBuffer = new Uint8Array(readFileSync(join(repoRoot, 'public', 'model', 'sinsan-smoke-v0.bin'))).buffer;
+const weightsBuffer = new Uint8Array(readFileSync(join(repoRoot, 'public', 'model', `${modelName}.bin`))).buffer;
 
 interface ParityCase {
   fen: string;
@@ -26,10 +30,10 @@ test('exported weights buffer matches its own manifest digest', async () => {
   await verifyWeightsDigest(manifest, weightsBuffer);
 });
 
-test('manifest reports the expected smoke-tier architecture and size', () => {
-  assert.equal(manifest.architecture.channels, 32);
-  assert.equal(manifest.architecture.blocks, 4);
-  assert.equal(manifest.parameter_count, 107_426);
+test('manifest reports a real architecture and fits the weight budget', () => {
+  assert.ok(manifest.architecture.channels > 0);
+  assert.ok(manifest.architecture.blocks > 0);
+  assert.ok(manifest.parameter_count > 0);
   assert.ok(manifest.weights_bytes < 480 * 1024, `weights blob ${manifest.weights_bytes}B should fit the 480KiB budget`);
 });
 

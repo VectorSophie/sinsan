@@ -99,18 +99,64 @@ amateur 3-dan equivalent, estimated from controlled engine matches, not yet
 verified against rated human players," and keep that qualifier until real
 verified-human results exist.
 
-## Training-time estimation (Section 24) — scoped for a later phase
+## Training-time estimation (Section 24)
 
-Sections 24.1 (teacher throughput benchmark) and 24.2 (training-step
-benchmark) require a built Fairy-Stockfish binary and an installed PyTorch
-CPU environment respectively — both Phase 3+ activities, deliberately out
-of this session's scope (Phase 0 research/docs/scaffold, per the session
-plan agreed at the start of this work). `scripts/estimate-training-time.py`
-and the underlying teacher/training benchmarks will be built and actually
-run in that follow-up phase; this document records the plan and the
-categories of estimate (measured / extrapolated / conservative / optimistic)
-required by Section 24.3, not placeholder numbers standing in for real
-measurements.
+`scripts/estimate-training-time.py` (a dedicated estimator script per Section
+24.3) has not been written yet, but both prerequisite benchmarks now have
+real, host-measured numbers to build it from, superseding the spec's own
+pre-measurement planning ranges (Section 24, "~3-10 hours" for a 50K
+baseline):
+
+**24.1 teacher throughput (measured, this host, Fairy-Stockfish pinned
+commit, single process, nodes=8000, MultiPV=8):** 512 positions in 44.5s ≈
+11.5 positions/sec. Extrapolated (not separately re-measured) to 50,000
+positions: **~72 minutes**. This is an extrapolation from one config, not a
+sweep across the 1×4/2×2/3×1/4×1 process×thread configurations Section 21
+asks `benchmark-teacher.sh` to compare — that script doesn't exist yet, so
+the "best config" question is still open; this is just what single-process
+throughput happens to be.
+
+**24.2 training step time (measured, this host, CPU-only PyTorch):**
+32×4 Tiny Baseline at batch_size=32: 79-100ms/step (~320-400 samples/sec,
+noisy across repeated runs on this shared machine — see the inference-
+latency investigation above for why). 48×6 Main Candidate: ~204ms/step at
+batch_size=32 (157 samples/sec), ~239 samples/sec at batch_size=256 (2-step
+measurement only — noisy, but directionally confirms larger batches are
+more efficient per-sample on this CPU, as Section 14 anticipated). Extrapolated
+to a 50,000-position dataset (~40,000 after the game-level train/val/test
+split) at batch_size=256, 20 epochs: **~55-60 minutes for the 48×6 model**,
+notably faster than the spec's own pre-measurement guess for the whole
+50K-baseline phase — because that guess bundled in teacher generation time
+(the actual bottleneck, ~72 min) plus dataset conversion, not just training.
+
+**Combined estimate for a 50K-position Phase 5 baseline run (self-play
+generation + labeling + training + export), this host:** self-play
+generation ~3 min (measured directly: 50,000 positions in 178s) + labeling
+~72 min (extrapolated) + training ~55-60 min (extrapolated) + export
+<1 min (measured) ≈ **~2.5 hours total**, well under the spec's own
+conservative 3-10 hour range for this phase - a genuinely good sign, though
+still an extrapolation from smaller measured runs, not a full end-to-end
+timed execution of the 50K pipeline.
+
+**24.4 Real end-to-end result (measured, not extrapolated) — the user ran
+the full Phase 5 pipeline on this host:** the 48×6 training run itself took
+**73.3 minutes** for 20 epochs / 3140 steps (mean=894.4ms/step, p50=877.2ms,
+286 samples/sec, batch_size=256) — about 25% longer than the 55-60 min
+extrapolation above, a reminder that a 2-step noisy sample underestimated
+the real run. Final losses: train policy_loss=2.4133 value_loss=0.0049 |
+val policy_loss=2.4368 value_loss=0.0085 | held-out test policy_loss=2.4413
+value_loss=0.0060 — val tracks train closely with no sign of overfitting
+across 20 epochs. **Legal-move rate on the validation split (masked
+argmax): 100.0%** — the pass/fail gate from Section 18.1 holds. Export:
+293,746 parameters, 298,800-byte weights blob (**291.8 KiB**, well inside
+the 480 KiB budget, 208 KiB of headroom left). All 3
+`tests/model/model-runtime-parity.test.ts` checks passed against this real
+export (`SINSAN_MODEL_NAME=sinsan-baseline-v0`): digest verification,
+manifest/budget check, and TS-vs-PyTorch numerical parity. Labeling and
+self-play generation wall-clock weren't captured in this transcript (the
+user ran them separately before pasting the training output), so the
+labeling portion of the combined estimate above is still an extrapolation,
+not yet a real measured number.
 
 ## What "done" looks like for this plan
 

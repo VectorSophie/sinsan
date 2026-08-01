@@ -7,7 +7,7 @@
  * It exists to validate the generate -> label -> train -> export -> infer pipeline end to end, per
  * Phase 4's own stated purpose - not to produce a strength-representative dataset.
  *
- * Run with: node training/generate/self-play.ts [targetPositionCount]
+ * Run with: node training/generate/self-play.ts [targetPositionCount] [outputFilename]
  */
 import { writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -25,6 +25,7 @@ import { encodeMove } from '../../packages/action-space/src/index.ts';
 
 const FORMATIONS: Formation[] = ['masang-sangma', 'sangma-masang', 'masang-masang', 'sangma-sangma'];
 const TARGET_COUNT = Number(process.argv[2] ?? 512);
+const OUTPUT_FILENAME = process.argv[3] ?? 'smoke-positions.jsonl';
 const MAX_PLIES_PER_GAME = 60;
 
 let seed = 20260731;
@@ -92,6 +93,6 @@ while (records.length < TARGET_COUNT) {
   gameId++;
 }
 
-const outPath = join(dirname(fileURLToPath(import.meta.url)), '..', 'datasets', 'smoke-positions.jsonl');
+const outPath = join(dirname(fileURLToPath(import.meta.url)), '..', 'datasets', OUTPUT_FILENAME);
 writeFileSync(outPath, records.map((r) => JSON.stringify(r)).join('\n') + '\n');
 console.log(`Wrote ${records.length} positions from ${gameId} games to ${outPath}`);

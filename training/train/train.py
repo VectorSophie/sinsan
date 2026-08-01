@@ -1,16 +1,17 @@
-"""Smoke training run (Phase 4 / Section 23 item 12): a few epochs of the Tiny Baseline network
-on the 512-position smoke dataset. Validates the pipeline (data loads, loss decreases, a
-checkpoint is produced) - explicitly not a strength claim, per docs/BENCHMARK_PLAN.md.
+"""Training run for the Tiny Baseline (32x4, smoke tier) or Main Candidate (48x6, Phase 5
+baseline) network - same script, different --channels/--blocks/--epochs, per docs/MODEL_DESIGN.md.
+Not a strength claim by itself - see docs/BENCHMARK_PLAN.md for what's measured vs. planned.
 
 Also records real, host-measured step timing (seconds/step, samples/sec) rather than an assumed
 number, feeding docs/BENCHMARK_PLAN.md's Section 24.2 training-time estimate.
 
-CPU-only by construction (Section 14: "Do not write code that assumes CUDA") - this smoke run
-doesn't even check for a CUDA device, since the official environment is CPU-only Linux Mint.
+CPU-only by construction (Section 14: "Do not write code that assumes CUDA") - doesn't even check
+for a CUDA device, since the official environment is CPU-only Linux Mint.
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 import time
@@ -22,15 +23,15 @@ from torch import nn
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from model.network import ACTION_SPACE_SIZE, SinsanTinyNet, fen_to_planes  # noqa: E402
 
-DATASET_PATH = Path(__file__).parent.parent / "datasets" / "smoke-labeled.jsonl"
+DATASETS_DIR = Path(__file__).parent.parent / "datasets"
 CHECKPOINT_DIR = Path(__file__).parent.parent / "model" / "checkpoints"
 VALIDATION_BUCKET = 0
 TEST_BUCKET = 1
 SPLIT_BUCKET_COUNT = 10  # matches docs/DATASET_DESIGN.md's game_id % N approach (Moka-derived)
 
 
-def load_records() -> list[dict]:
-    return [json.loads(line) for line in DATASET_PATH.read_text().splitlines() if line.strip()]
+def load_records(dataset_path: Path) -> list[dict]:
+    return [json.loads(line) for line in dataset_path.read_text().splitlines() if line.strip()]
 
 
 def split_by_game(records: list[dict]) -> tuple[list[dict], list[dict], list[dict]]:
@@ -81,31 +82,72 @@ def masked_soft_cross_entropy(logits: torch.Tensor, targets: torch.Tensor, legal
     return -term.sum(dim=1).mean()
 
 
+def evaluate(model: SinsanTinyNet, records: list[dict], value_loss_fn: nn.Module, batch_size: int) -> tuple[float, float]:
+    """Mean policy/value loss over `records`, batched to bound peak memory on large val/test
+    splits rather than building one giant tensor (fine at 512 positions, not at 50,000+)."""
+    model.eval()
+    total_policy_loss = 0.0
+    total_value_loss = 0.0
+    num_batches = 0
+    with torch.no_grad():
+        for start in range(0, len(records), batch_size):
+            batch = records[start : start + batch_size]
+            inputs, policy_targets, legal_masks, value_targets = build_batch(batch)
+            policy_logits, value_pred = model(inputs)
+            total_policy_loss += masked_soft_cross_entropy(policy_logits, policy_targets, legal_masks).item()
+            total_value_loss += value_loss_fn(value_pred, value_targets).item()
+            num_batches += 1
+    return total_policy_loss / num_batches, total_value_loss / num_batches
+
+
+def legal_move_rate(model: SinsanTinyNet, records: list[dict], batch_size: int) -> float:
+    model.eval()
+    correct = 0
+    with torch.no_grad():
+        for start in range(0, len(records), batch_size):
+            batch = records[start : start + batch_size]
+            inputs, _policy_targets, legal_masks, _value_targets = build_batch(batch)
+            policy_logits, _value_pred = model(inputs)
+            masked_logits = policy_logits.masked_fill(~legal_masks, float("-inf"))
+            chosen = masked_logits.argmax(dim=1)
+            correct += legal_masks.gather(1, chosen.unsqueeze(1)).sum().item()
+    return correct / len(records)
+
+
 def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--dataset", default="smoke-labeled.jsonl", help="filename under training/datasets/")
+    parser.add_argument("--channels", type=int, default=32)
+    parser.add_argument("--blocks", type=int, default=4)
+    parser.add_argument("--epochs", type=int, default=5)
+    parser.add_argument("--batch-size", type=int, default=32)
+    parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument("--checkpoint-out", default="tiny-smoke.pt", help="filename under training/model/checkpoints/")
+    args = parser.parse_args()
+
     torch.manual_seed(0)
-    records = load_records()
+    records = load_records(DATASETS_DIR / args.dataset)
     train_records, val_records, test_records = split_by_game(records)
     print(f"split: {len(train_records)} train / {len(val_records)} val / {len(test_records)} test (by game_id)")
 
-    model = SinsanTinyNet(channels=32, blocks=4)
-    print(f"SinsanTinyNet: {model.parameter_count():,} parameters")
+    model = SinsanTinyNet(channels=args.channels, blocks=args.blocks)
+    print(f"SinsanTinyNet(channels={args.channels}, blocks={args.blocks}): {model.parameter_count():,} parameters")
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     value_loss_fn = nn.MSELoss()
 
-    batch_size = 32
-    epochs = 5
     step_times: list[float] = []
+    training_start = time.time()
 
-    for epoch in range(epochs):
+    for epoch in range(args.epochs):
         model.train()
         perm = torch.randperm(len(train_records))
         epoch_policy_loss = 0.0
         epoch_value_loss = 0.0
         num_batches = 0
 
-        for start in range(0, len(train_records), batch_size):
-            batch_indices = perm[start : start + batch_size]
+        for start in range(0, len(train_records), args.batch_size):
+            batch_indices = perm[start : start + args.batch_size]
             batch = [train_records[i] for i in batch_indices]
             inputs, policy_targets, legal_masks, value_targets = build_batch(batch)
 
@@ -123,37 +165,38 @@ def main() -> None:
             epoch_value_loss += value_loss.item()
             num_batches += 1
 
+        val_policy_loss, val_value_loss = evaluate(model, val_records, value_loss_fn, args.batch_size)
+        elapsed_min = (time.time() - training_start) / 60
         print(
-            f"epoch {epoch + 1}/{epochs}: policy_loss={epoch_policy_loss / num_batches:.4f} "
-            f"value_loss={epoch_value_loss / num_batches:.4f}"
+            f"epoch {epoch + 1}/{args.epochs} ({elapsed_min:.1f} min elapsed): "
+            f"train policy_loss={epoch_policy_loss / num_batches:.4f} value_loss={epoch_value_loss / num_batches:.4f} | "
+            f"val policy_loss={val_policy_loss:.4f} value_loss={val_value_loss:.4f}"
         )
 
     # Legal-move rate check on the held-out validation split (Section 18.1: must be 100% after
     # masking - here that just means argmax-over-legal-logits always lands on a legal action,
     # which is true by construction of masked_soft_cross_entropy's -inf masking, but worth
     # asserting rather than assuming).
-    model.eval()
-    with torch.no_grad():
-        inputs, _policy_targets, legal_masks, _value_targets = build_batch(val_records)
-        policy_logits, _value_pred = model(inputs)
-        masked_logits = policy_logits.masked_fill(~legal_masks, float("-inf"))
-        chosen = masked_logits.argmax(dim=1)
-        legal_rate = legal_masks.gather(1, chosen.unsqueeze(1)).float().mean().item()
+    legal_rate = legal_move_rate(model, val_records, args.batch_size)
     print(f"legal-move rate on validation split (masked argmax): {legal_rate * 100:.1f}%")
     assert legal_rate == 1.0, "masked argmax picked an illegal action - masking bug"
 
+    test_policy_loss, test_value_loss = evaluate(model, test_records, value_loss_fn, args.batch_size)
+    print(f"held-out test split: policy_loss={test_policy_loss:.4f} value_loss={test_value_loss:.4f}")
+
     CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
-    checkpoint_path = CHECKPOINT_DIR / "tiny-smoke.pt"
+    checkpoint_path = CHECKPOINT_DIR / args.checkpoint_out
     torch.save(model.state_dict(), checkpoint_path)
 
     step_times_ms = sorted(t * 1000 for t in step_times)
     p50 = step_times_ms[len(step_times_ms) // 2]
     mean_ms = sum(step_times_ms) / len(step_times_ms)
-    samples_per_sec = batch_size / (mean_ms / 1000)
+    samples_per_sec = args.batch_size / (mean_ms / 1000)
+    total_min = (time.time() - training_start) / 60
     print(
-        f"step timing (measured, this host, batch_size={batch_size}): "
+        f"step timing (measured, this host, batch_size={args.batch_size}): "
         f"mean={mean_ms:.1f}ms p50={p50:.1f}ms samples/sec={samples_per_sec:.0f} "
-        f"over {len(step_times)} steps"
+        f"over {len(step_times)} steps, {total_min:.1f} min total"
     )
     print(f"saved checkpoint: {checkpoint_path}")
 

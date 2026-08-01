@@ -53,12 +53,39 @@ export function applyMove(position: Position, move: Move): Position {
   return { ...withoutHistory, positionHistory: [...position.positionHistory, positionKey(withoutHistory)] };
 }
 
-/** Pseudo-legal moves, minus any that would leave the mover's own general in check. */
+/**
+ * Pseudo-legal moves, minus any that would leave the mover's own general in check, and - only
+ * when bikjang already exists in the CURRENT position, under profiles where bikjangEndsGame is
+ * true - minus any non-pass move that fails to resolve it (i.e. still leaves the two generals
+ * facing on an open file after the move).
+ *
+ * Found via differential testing against pyffish (Section 8.4), not assumed, and refined twice
+ * after two rounds of real counterexamples:
+ *
+ * 1. First finding: an earlier version of this engine generated moves pyffish rejected whenever
+ *    bikjang was already on the board, always in a pattern where pyffish's few remaining legal
+ *    moves either interposed a piece on the open file or were pass.
+ * 2. That led to an over-broad first fix ("any non-pass move landing in bikjang is illegal"),
+ *    which then produced the *opposite* mismatch: pyffish allowed a general move that newly
+ *    created bikjang from a position that did *not* have bikjang before the move, which the
+ *    over-broad version wrongly rejected.
+ *
+ * Net rule, matching both rounds of evidence: bikjang must be *resolved*, not *avoided* -
+ * creating it from a clean position is fine, only failing to escape an existing one isn't.
+ * `modern`/`casual` (bikjangEndsGame: false) never restrict on this basis, matching the existing
+ * RuleProfile split, which is why this reuses that flag rather than adding a new one. See
+ * docs/RULES.md and artifacts/rule-mismatches/ for the record.
+ */
 export function generateLegalMoves(position: Position): Move[] {
   const side = position.sideToMove;
+  const profile = ruleProfileFor(position.ruleProfile);
+  const mustResolveBikjang = profile.bikjangEndsGame && isBikjang(position);
   const legal: Move[] = [];
   for (const move of generatePseudoLegalMoves(position, side)) {
-    if (!isSideInCheck(applyMove(position, move), side)) legal.push(move);
+    const next = applyMove(position, move);
+    if (isSideInCheck(next, side)) continue;
+    if (!move.isPass && mustResolveBikjang && isBikjang(next)) continue;
+    legal.push(move);
   }
   return legal;
 }

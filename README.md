@@ -10,11 +10,16 @@ isn't trying to be.
 
 - **Phase 0 (research + documentation + repo scaffold): complete.** See `docs/` for the nine
   research/design documents and the license audit.
-- **Phase 1 (rules engine): core implemented and tested.** `packages/rules` has immutable
-  position representation, full piece move generation (including cannon screening, palace
-  diagonals, horse/elephant blocking), self-check-safe legal move generation, all four starting
-  formations, bikjang/repetition/material-count game-result detection, and FEN-like
-  serialization. 45 unit tests pass; type-checks clean.
+- **Phase 1 (rules engine): implemented, tested, and differentially verified against pyffish.**
+  `packages/rules` has immutable position representation, full piece move generation (including
+  cannon screening, palace diagonals, horse/elephant blocking), self-check-safe legal move
+  generation, all four starting formations, bikjang/repetition/material-count game-result
+  detection, and FEN-like serialization. 64 unit tests pass; type-checks clean.
+  **Differential testing against `pyffish`** (`tests/differential/`) found and fixed a real gap:
+  bikjang must be *resolved* (interposition or pass) once it already exists, not just detected as
+  a game-end condition - an over-broad first fix was itself caught by the same harness producing
+  a counterexample in the opposite direction. Verified with 10,000 random positions across all
+  four rule profiles, 0 mismatches after the fix. See docs/RULES.md's "Confirmed finding" section.
 - **Phase 2 (playable board demo): working vertical slice.** `apps/web` (Vite + vanilla TS) +
   `packages/ui` (wraps chessgroundx) render a real 9x10 board with the vendored wooden
   board/piece assets, legal-move dots, last-move/check highlighting, and move animation. Human
@@ -53,9 +58,17 @@ isn't trying to be.
   was included (not excluded, as an earlier isolated comparison mistakenly did), and reverted -
   see `docs/BENCHMARK_PLAN.md` for the full writeup and the concrete next thing to try (a reusable
   scratch buffer, not more loop tweaks).
-- **Not yet started:** dataset generation at production scale, on-policy refinement,
-  differential testing against `pyffish`, and the `/analysis`, `/arena`, `/research`, `/about`
-  routes. See `docs/BENCHMARK_PLAN.md` for what's measured vs. planned.
+- **Phase 5 (48x6 Main Candidate baseline model): trained, exported, and parity-verified on real
+  data.** 50,000 self-play positions (948 games) labeled by the teacher and trained for 20 epochs
+  (73.3 min measured, 286 samples/sec) produced `sinsan-baseline-v0`: 293,746 params, 291.8KiB INT8
+  export (well inside the 480KiB budget), 100% legal-move rate on the validation split, val loss
+  tracking train loss with no overfitting, and all 3 TS<->PyTorch parity tests passing against the
+  real export. See `docs/BENCHMARK_PLAN.md` Section 24.4 for the full real-measured numbers. Not
+  yet wired into the playable board's AI dropdown (still points at the Phase 4 smoke model) or
+  arena-evaluated for playing strength.
+- **Not yet started:** on-policy refinement (self-play still uses random moves, not teacher- or
+  model-guided), value calibration, and the `/analysis`, `/arena`, `/research`, `/about` routes.
+  See `docs/BENCHMARK_PLAN.md` for what's measured vs. planned.
 
 ## Requirements
 
@@ -99,6 +112,46 @@ cd .. && node --test 'tests/model/**/*.test.ts' # includes the TS<->PyTorch nume
 Then pick "Sinsan (policy only, no search)" or "Sinsan (16-visit search)" from the AI dropdown on
 the playable board to see real Worker-hosted inference (with or without PUCT/MCTS) driving moves.
 
+## Running the Phase 5 baseline pipeline (48x6 Main Candidate, ~50K positions)
+
+Every script above now takes `--dataset`/`--channels`/`--blocks`/`--epochs`/`--batch-size`/etc.
+instead of hardcoding the smoke tier, so the same code produces either model.
+`training/datasets/baseline-positions.jsonl` (50,000 self-play positions) is already generated -
+labeling and training are long-running and left for you to kick off:
+
+```sh
+cd training
+uv run python generate/label_dataset.py --input baseline-positions.jsonl --output baseline-labeled.jsonl
+# ~70-90 min (real measured throughput ~11.5 pos/sec) - resumable if interrupted (re-run the same
+# command; it skips positions already in the output file). Prints an ETA as it goes.
+
+uv run python train/train.py --dataset baseline-labeled.jsonl --channels 48 --blocks 6 \
+  --epochs 20 --batch-size 256 --checkpoint-out baseline-48x6.pt
+# ~55-60 min extrapolated from measured per-step timing (docs/BENCHMARK_PLAN.md) - watch the
+# printed train/val loss each epoch for overfitting, not just that it runs.
+
+uv run python export/export.py --checkpoint baseline-48x6.pt --channels 48 --blocks 6 \
+  --model-name sinsan-baseline-v0 --training-run phase5-baseline
+
+uv run python export/dump_parity_fixture.py --checkpoint baseline-48x6.pt --dataset baseline-labeled.jsonl \
+  --channels 48 --blocks 6
+
+cd .. && SINSAN_MODEL_NAME=sinsan-baseline-v0 node --test 'tests/model/model-runtime-parity.test.ts'
+```
+
+To try it in the playable board, either overwrite `public/model/sinsan-smoke-v0.{bin,json}` with
+the baseline export, or edit the hardcoded path in `apps/web/src/main.ts`'s `getModelClient()`.
+
+## Differential testing (rules engine vs. pyffish)
+
+```sh
+node tests/differential/generate-cases.ts 10000   # random legal positions, all 4 rule profiles
+cd training && uv run python ../tests/differential/compare.py
+```
+
+Mismatches (if any) are saved to `artifacts/rule-mismatches/` with the FEN, variant, and the
+exact move-set difference - currently empty (0 mismatches at 10,000 positions).
+
 ## Benchmarking model-runtime inference
 
 ```sh
@@ -122,8 +175,8 @@ See `docs/ARCHITECTURE.md` for the full layering rationale. Top-level: `packages
 TS: rules, action-space, model-runtime, search all implemented), `training/` (Python + a few TS
 generation scripts: teacher, generate, model, train, export all implemented for the smoke tier;
 on-policy refinement not yet), `apps/` (web: playable board implemented; arena not yet), `tests/`
-(unit, fixtures, model - differential and browser/Playwright not yet), `benchmarks/` (model
-inference latency), `assets/`, `docs/`, `scripts/`, `licenses/`.
+(unit, fixtures, model, differential all implemented; browser/Playwright not yet), `benchmarks/`
+(model inference latency), `assets/`, `docs/`, `scripts/`, `licenses/`.
 
 ## License
 

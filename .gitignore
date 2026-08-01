@@ -21,6 +21,7 @@ training/datasets/*.npz
 artifacts/rule-mismatches/*.json
 benchmarks/*.json
 !benchmarks/.gitkeep
+tests/differential/cases.jsonl
 
 # Vendored third-party binaries fetched by scripts/build-teacher.sh
 training/teacher/bin/
