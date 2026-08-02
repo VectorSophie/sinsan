@@ -7,6 +7,9 @@ import { squareOf } from '../../packages/rules/src/index.ts';
 import type { Piece, PieceType, Position, Side } from '../../packages/rules/src/index.ts';
 import { NUM_INPUT_PLANES, positionToPlanes } from '../../packages/model-runtime/src/features.ts';
 
+// Input-plane encoding doesn't depend on model architecture, so any exported model's fixture
+// works here - defaults to the smoke model's, same env var the model-runtime parity test uses.
+const modelName = process.env.SINSAN_MODEL_NAME ?? 'sinsan-smoke-v0';
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 interface ParityCase {
@@ -14,7 +17,7 @@ interface ParityCase {
   input_planes: number[];
 }
 const fixture: ParityCase[] = JSON.parse(
-  readFileSync(join(repoRoot, 'packages', 'model-runtime', 'parity-fixture.json'), 'utf8'),
+  readFileSync(join(repoRoot, 'packages', 'model-runtime', `parity-fixture-${modelName}.json`), 'utf8'),
 );
 
 const LETTER_TO_TYPE: Record<string, PieceType> = {

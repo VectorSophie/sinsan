@@ -99,6 +99,27 @@ amateur 3-dan equivalent, estimated from controlled engine matches, not yet
 verified against rated human players," and keep that qualifier until real
 verified-human results exist.
 
+**First real playing-strength measurement (`apps/arena`, this host):** 20
+paired games (40 total, random formation openings, colors reversed per
+pair) between `sinsan-baseline-v0`'s raw policy head (greedy, no search)
+and uniform-random legal moves: **A (baseline policy) won 11, lost 0, drew
+29** - score fraction 63.7%, rough Elo-difference estimate +98 (small-sample,
+directional only, not a calibrated rating - see the caveat above `apps/arena`
+prints with every run). The trained policy never lost to random play across
+40 games, which is a real signal the model learned something from the
+teacher labels, not just noise - but the 29 draws are mostly `bikjang`
+(both sides can stumble into it unintentionally), so this result says "the
+policy is clearly better than random," not "the policy avoids bikjang" or
+anything about tactical strength, which needs a stronger opponent (search-
+enabled play, or a real baseline engine per the desiderata above) to probe.
+This is not yet the Elo-vs-checkpoints, vs-alpha-beta-engine, or vs-
+restricted-Fairy-Stockfish comparisons Section 18.3 asks for - those still
+need real opponent engines wired into `apps/arena`, which doesn't exist
+yet. Run it yourself: `node apps/arena/src/run.ts --a
+"search:sinsan-baseline-v0:16" --b "policy:sinsan-baseline-v0" --pairs 10`
+for a slower but more informative search-vs-policy comparison (real per-move
+search cost, not yet measured end-to-end for a full arena batch).
+
 ## Training-time estimation (Section 24)
 
 `scripts/estimate-training-time.py` (a dedicated estimator script per Section

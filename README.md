@@ -134,13 +134,29 @@ uv run python export/export.py --checkpoint baseline-48x6.pt --channels 48 --blo
   --model-name sinsan-baseline-v0 --training-run phase5-baseline
 
 uv run python export/dump_parity_fixture.py --checkpoint baseline-48x6.pt --dataset baseline-labeled.jsonl \
-  --channels 48 --blocks 6
+  --channels 48 --blocks 6 --model-name sinsan-baseline-v0
 
 cd .. && SINSAN_MODEL_NAME=sinsan-baseline-v0 node --test 'tests/model/model-runtime-parity.test.ts'
 ```
 
-To try it in the playable board, either overwrite `public/model/sinsan-smoke-v0.{bin,json}` with
-the baseline export, or edit the hardcoded path in `apps/web/src/main.ts`'s `getModelClient()`.
+The playable board's AI dropdown already offers both variants (smoke and baseline, policy-only
+and 16-visit search) - `sinsan-baseline-v0` is the default selection.
+
+## Arena (paired matches between two players)
+
+```sh
+node apps/arena/src/run.ts --a "policy:sinsan-baseline-v0" --b random --pairs 20
+node apps/arena/src/run.ts --a "search:sinsan-baseline-v0:16" --b random --pairs 10  # slower - real per-move search
+node apps/arena/src/run.ts --a "search:sinsan-baseline-v0:16" --b "policy:sinsan-baseline-v0" --pairs 10
+```
+
+`apps/arena` (docs/ARCHITECTURE.md) calls `SinsanModel.infer()` directly - no Worker/fetch, since
+that boundary is specifically about the shipped browser artifact and this tool never ships to the
+browser. Each pair plays one random formation-combo opening twice with colors reversed, to cancel
+first-move/formation bias (docs/BENCHMARK_PLAN.md Section 18.3). Player specs: `random`,
+`policy:<model-name>` (greedy policy, no search), `search:<model-name>:<visits>` (PUCT). Reports
+win/loss/draw counts and a rough Elo-difference estimate - explicitly labeled small-sample/
+directional, not a calibrated rating (that needs many more games than a few dozen).
 
 ## Differential testing (rules engine vs. pyffish)
 

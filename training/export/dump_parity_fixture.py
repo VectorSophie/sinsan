@@ -5,9 +5,10 @@ the real correctness guarantee for a from-scratch reimplementation, not just "sh
 construction". Some divergence from INT8 quantization is expected; the fixture stores the
 float-checkpoint output so the TS test can apply its own explicit tolerance.
 
-Run with matching --checkpoint/--channels/--blocks/--dataset for whichever model you just
-exported - tests/model/model-runtime-parity.test.ts always reads whatever is currently at
-public/model/<model-name>.{bin,json}, so keep this fixture in sync with that same export.
+Run with matching --checkpoint/--channels/--blocks/--dataset/--model-name for whichever model you
+just exported. Output is keyed by --model-name (parity-fixture-<model-name>.json) so smoke and
+baseline fixtures coexist instead of overwriting each other - tests/model/model-runtime-parity.test.ts
+reads the fixture matching its own SINSAN_MODEL_NAME.
 """
 
 from __future__ import annotations
@@ -24,7 +25,7 @@ from model.network import SinsanTinyNet, fen_to_planes  # noqa: E402
 
 CHECKPOINT_DIR = Path(__file__).parent.parent / "model" / "checkpoints"
 DATASETS_DIR = Path(__file__).parent.parent / "datasets"
-OUT_PATH = Path(__file__).parent.parent.parent / "packages" / "model-runtime" / "parity-fixture.json"
+OUT_DIR = Path(__file__).parent.parent.parent / "packages" / "model-runtime"
 
 
 def main() -> None:
@@ -34,7 +35,14 @@ def main() -> None:
     parser.add_argument("--channels", type=int, default=32)
     parser.add_argument("--blocks", type=int, default=4)
     parser.add_argument("--count", type=int, default=5, help="number of positions to sample")
+    parser.add_argument(
+        "--model-name",
+        default="sinsan-smoke-v0",
+        help="matches the --model-name passed to export.py - keys the output filename so different "
+        "models' fixtures don't collide (parity-fixture-<model-name>.json)",
+    )
     args = parser.parse_args()
+    out_path = OUT_DIR / f"parity-fixture-{args.model_name}.json"
 
     model = SinsanTinyNet(channels=args.channels, blocks=args.blocks)
     model.load_state_dict(torch.load(CHECKPOINT_DIR / args.checkpoint, map_location="cpu"))
@@ -59,8 +67,8 @@ def main() -> None:
                 }
             )
 
-    OUT_PATH.write_text(json.dumps(cases) + "\n")
-    print(f"Wrote {len(cases)} parity cases to {OUT_PATH}")
+    out_path.write_text(json.dumps(cases) + "\n")
+    print(f"Wrote {len(cases)} parity cases to {out_path}")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,17 @@
+{
+  "name": "@sinsan/arena",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-or-later",
+  "description": "Headless paired-match runner (docs/ARCHITECTURE.md) - reuses packages/* directly, no Worker/fetch boundary since this never ships to the browser.",
+  "dependencies": {
+    "@sinsan/action-space": "*",
+    "@sinsan/model-runtime": "*",
+    "@sinsan/rules": "*",
+    "@sinsan/search": "*"
+  },
+  "devDependencies": {
+    "typescript": "~6.0.2"
+  }
+}

@@ -23,7 +23,7 @@ interface ParityCase {
   value: number;
 }
 const fixture: ParityCase[] = JSON.parse(
-  readFileSync(join(repoRoot, 'packages', 'model-runtime', 'parity-fixture.json'), 'utf8'),
+  readFileSync(join(repoRoot, 'packages', 'model-runtime', `parity-fixture-${modelName}.json`), 'utf8'),
 );
 
 test('exported weights buffer matches its own manifest digest', async () => {

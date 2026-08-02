@@ -19,6 +19,12 @@ const SEARCH_VISITS = 16; // Section 16's "Intermediate: 16 visits" tier - kept 
 // responsive live demo; 64/128 ("Advanced"/"Sinsan") are supported by the same API but not wired
 // into this UI given the smoke model's current ~60-100ms/inference cost (docs/BENCHMARK_PLAN.md).
 
+const MODEL_VARIANTS = {
+  smoke: { modelName: 'sinsan-smoke-v0', label: 'smoke, 32x4' },
+  baseline: { modelName: 'sinsan-baseline-v0', label: 'baseline, 48x6' },
+} as const;
+type ModelVariant = keyof typeof MODEL_VARIANTS;
+
 const FORMATIONS: Formation[] = ['masang-sangma', 'sangma-masang', 'masang-masang', 'sangma-sangma'];
 const HUMAN_MOVE_MS = 180;
 const AI_MOVE_MS = 230;
@@ -42,9 +48,11 @@ app.innerHTML = `
     </label>
     <label>AI
       <select id="ai-type">
-        <option value="random">Random (smoke baseline)</option>
-        <option value="model">Sinsan (policy only, no search)</option>
-        <option value="search16">Sinsan (${SEARCH_VISITS}-visit search)</option>
+        <option value="random">Random</option>
+        <option value="model:smoke">Sinsan (${MODEL_VARIANTS.smoke.label}, policy only)</option>
+        <option value="model:baseline">Sinsan (${MODEL_VARIANTS.baseline.label}, policy only)</option>
+        <option value="search16:smoke">Sinsan (${MODEL_VARIANTS.smoke.label}, ${SEARCH_VISITS}-visit search)</option>
+        <option value="search16:baseline" selected>Sinsan (${MODEL_VARIANTS.baseline.label}, ${SEARCH_VISITS}-visit search)</option>
       </select>
     </label>
   </div>
@@ -117,26 +125,31 @@ function afterMove(move: Move): void {
   maybeScheduleAiMove();
 }
 
-let modelClientPromise: Promise<ModelWorkerClient> | undefined;
+const modelClientPromises = new Map<ModelVariant, Promise<ModelWorkerClient>>();
 
-/** Lazily creates the Worker-hosted model client on first use - fetches the manifest+weights on
- * the main thread (with SHA-256 verification), then hands the buffer to a dedicated Worker. All
- * tensor computation happens in that Worker, never here (Section 2). */
-function getModelClient(): Promise<ModelWorkerClient> {
-  if (!modelClientPromise) {
-    modelClientPromise = createModelWorkerClient(
+/** Lazily creates the Worker-hosted model client for a given variant on first use - fetches the
+ * manifest+weights on the main thread (with SHA-256 verification), then hands the buffer to a
+ * dedicated Worker. All tensor computation happens in that Worker, never here (Section 2). Each
+ * variant gets its own client/Worker, cached separately, so switching in the AI dropdown doesn't
+ * re-fetch a variant already loaded this session. */
+function getModelClient(variant: ModelVariant): Promise<ModelWorkerClient> {
+  let promise = modelClientPromises.get(variant);
+  if (!promise) {
+    const { modelName } = MODEL_VARIANTS[variant];
+    promise = createModelWorkerClient(
       new URL('./model-worker.ts', import.meta.url),
-      '/model/sinsan-smoke-v0.json',
-      '/model/sinsan-smoke-v0.bin',
+      `/model/${modelName}.json`,
+      `/model/${modelName}.bin`,
     );
+    modelClientPromises.set(variant, promise);
   }
-  return modelClientPromise;
+  return promise;
 }
 
 /** Greedy policy play (Section 16's "Beginner: policy sampling, no tree search" mode) - no MCTS,
- * just the smoke model's raw policy head masked to legal moves. This is Phase 4's Web Worker
+ * just the chosen variant's raw policy head masked to legal moves. This is Phase 4's Web Worker
  * inference deliverable proven live, not a strength claim (docs/BENCHMARK_PLAN.md). */
-async function pickModelMove(current: Position): Promise<Move> {
+async function pickModelMove(current: Position, variant: ModelVariant): Promise<Move> {
   const legalMoves = generateLegalMoves(current);
   const legalByAction = new Map<number, Move>();
   for (const move of legalMoves) {
@@ -144,7 +157,7 @@ async function pickModelMove(current: Position): Promise<Move> {
     if (actionId !== undefined) legalByAction.set(actionId, move);
   }
 
-  const client = await getModelClient();
+  const client = await getModelClient(variant);
   const start = performance.now();
   const { policyLogits, value } = await client.infer(positionToPlanes(current));
   const elapsedMs = performance.now() - start;
@@ -159,26 +172,34 @@ async function pickModelMove(current: Position): Promise<Move> {
     }
   }
 
-  aiInfoEl.textContent = `Sinsan (smoke model): value=${value.toFixed(2)}, inference ${elapsedMs.toFixed(1)}ms`;
+  aiInfoEl.textContent =
+    `Sinsan (${MODEL_VARIANTS[variant].label}): value=${value.toFixed(2)}, inference ${elapsedMs.toFixed(1)}ms`;
   return bestAction !== undefined ? legalByAction.get(bestAction)! : legalMoves[0]!;
 }
 
-async function modelEvaluator(current: Position): Promise<PositionEvaluation> {
-  const client = await getModelClient();
-  return client.infer(positionToPlanes(current));
+function modelEvaluator(variant: ModelVariant): (current: Position) => Promise<PositionEvaluation> {
+  return async (current) => {
+    const client = await getModelClient(variant);
+    return client.infer(positionToPlanes(current));
+  };
 }
 
-let searchTree: SearchTree | undefined;
+const searchTrees = new Map<ModelVariant, SearchTree>();
 
 /** PUCT/MCTS play (Section 16) - reuses the same tree across the game's moves via SearchTree
- * (Phase 4's search deliverable), not a fresh tree every call. */
-async function pickSearchMove(current: Position): Promise<Move> {
-  if (!searchTree) searchTree = new SearchTree(modelEvaluator);
+ * (Phase 4's search deliverable), not a fresh tree every call. Kept per-variant so switching the
+ * AI dropdown mid-session doesn't hand one variant's tree to another variant's evaluator. */
+async function pickSearchMove(current: Position, variant: ModelVariant): Promise<Move> {
+  let searchTree = searchTrees.get(variant);
+  if (!searchTree) {
+    searchTree = new SearchTree(modelEvaluator(variant));
+    searchTrees.set(variant, searchTree);
+  }
   const start = performance.now();
   const result = await searchTree.getMove(current, SEARCH_VISITS);
   const elapsedMs = performance.now() - start;
   aiInfoEl.textContent =
-    `Sinsan (${SEARCH_VISITS}-visit search): value=${result.rootValue.toFixed(2)}, ` +
+    `Sinsan (${MODEL_VARIANTS[variant].label}, ${SEARCH_VISITS}-visit search): value=${result.rootValue.toFixed(2)}, ` +
     `${result.visitsUsed} visits used, ${elapsedMs.toFixed(0)}ms`;
   return result.move;
 }
@@ -191,11 +212,12 @@ function pickRandomMove(current: Position): Move {
 }
 
 async function pickAiMove(current: Position): Promise<Move> {
-  switch (aiTypeSelect.value) {
+  const [kind, variant] = aiTypeSelect.value.split(':') as [string, ModelVariant | undefined];
+  switch (kind) {
     case 'model':
-      return pickModelMove(current);
+      return pickModelMove(current, variant!);
     case 'search16':
-      return pickSearchMove(current);
+      return pickSearchMove(current, variant!);
     default:
       return pickRandomMove(current);
   }
@@ -220,7 +242,7 @@ function handleHumanMove(move: Move): void {
 function newGame(): void {
   clearTimeout(aiTimer);
   gameOver = false;
-  searchTree = undefined; // a new game is a different game line - don't reuse the old tree
+  searchTrees.clear(); // a new game is a different game line - don't reuse old trees
   humanSide = humanSideSelect.value as Side;
   position = createInitialPosition({
     setupCho: setupChoSelect.value as Formation,
