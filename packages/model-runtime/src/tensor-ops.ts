@@ -27,9 +27,13 @@ export function makeTensor3D(channels: number, height: number, width: number): T
  * allocation/copy itself from the timed region. Once padding was paid on every real call (as it
  * must be, once per conv, 11 times per forward pass), full-model steady-state inference got
  * *worse* (~57ms -> ~80ms, confirmed across 3 runs): the allocation/copy cost for these small
- * tensors outweighed the saved branches. Kept as bounds-checked; if this needs to be faster
- * later, the right next thing to try is a *reusable scratch buffer* sized once at model
- * construction (paid once, not per call) rather than a fresh allocation per conv2d call.
+ * tensors outweighed the saved branches. Kept as bounds-checked.
+ *
+ * `out`, when supplied, is written into directly instead of allocating a fresh Tensor3D - the
+ * follow-up optimization the above investigation identified but hadn't implemented yet: a
+ * *reusable scratch buffer* sized once at model construction (paid once, not per call).
+ * SinsanModel.infer() passes one; direct callers (tests, benchmarks) can omit it and get the
+ * original allocate-fresh behavior.
  */
 export function conv2d(
   input: Tensor3D,
@@ -38,9 +42,9 @@ export function conv2d(
   outChannels: number,
   kernelSize: number,
   padding: number,
+  out: Tensor3D = makeTensor3D(outChannels, input.height, input.width),
 ): Tensor3D {
   const { channels: inChannels, height, width, data: inData } = input;
-  const out = makeTensor3D(outChannels, height, width);
   const outData = out.data;
 
   for (let oc = 0; oc < outChannels; oc++) {

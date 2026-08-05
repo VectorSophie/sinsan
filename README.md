@@ -63,12 +63,55 @@ isn't trying to be.
   (73.3 min measured, 286 samples/sec) produced `sinsan-baseline-v0`: 293,746 params, 291.8KiB INT8
   export (well inside the 480KiB budget), 100% legal-move rate on the validation split, val loss
   tracking train loss with no overfitting, and all 3 TS<->PyTorch parity tests passing against the
-  real export. See `docs/BENCHMARK_PLAN.md` Section 24.4 for the full real-measured numbers. Not
-  yet wired into the playable board's AI dropdown (still points at the Phase 4 smoke model) or
-  arena-evaluated for playing strength.
-- **Not yet started:** on-policy refinement (self-play still uses random moves, not teacher- or
-  model-guided), value calibration, and the `/analysis`, `/arena`, `/research`, `/about` routes.
-  See `docs/BENCHMARK_PLAN.md` for what's measured vs. planned.
+  real export. See `docs/BENCHMARK_PLAN.md` Section 24.4 for the full real-measured numbers.
+- **Phase 6 iteration 1 (on-policy self-play): real, measured, mixed picture - not a uniform
+  win, reported honestly.** 25,000 positions generated from `sinsan-baseline-v0`'s own policy
+  (temperature-sampled, not greedy, for game diversity), combined with the existing 50,000
+  random-self-play positions, trained a larger 56x7 model (`sinsan-v2-56x7`, 445,706 params,
+  441.7KiB). Across several `apps/arena` comparisons at increasing search depth: v2 clearly beats
+  v1 head-to-head at 16-visit search (5-0-15, +89 Elo est.) and clearly beats random at 64-visit
+  search (11-1-5, +127 Elo est., the strongest result measured) - but the deepest head-to-head
+  (both sides at 64-visit search) came back close to even, with v1 marginally ahead in decisive
+  games (1-2-15 over 18 games, cut short by a host memory issue, not enough games to call it
+  either way). `apps/arena` itself had a real bug fixed along the way: deterministic players plus
+  only 16 possible formation combos meant large `--pairs` counts produced redundant duplicate
+  games, not new data - fixed by adding random opening plies (`--random-plies`, default 4). See
+  `docs/BENCHMARK_PLAN.md`'s Phase 6 section for the full numbers, the bug-fix story, and an
+  honest read on what does and doesn't hold up. All three model variants (smoke/baseline/v2), both
+  policy-only and 16/64-visit search, are wired into the playable board's AI dropdown and verified
+  live; `apps/arena` (the headless match runner used for all of the above) is documented below.
+  Also worth knowing: this host hit three escalating out-of-memory events during these long
+  background runs (see `docs/BENCHMARK_PLAN.md`), killing unrelated processes including VS Code
+  and Chromium - a real host health issue, not a bug in this project (resolved by a since-happened
+  host restart, though the underlying cause in the host's other services was never identified).
+- **First real external calibration: `apps/arena` can now play Fairy-Stockfish, not just Sinsan's
+  own checkpoints.** A `stockfish` player kind drives a real Fairy-Stockfish subprocess over UCI
+  (same protocol `training/teacher/adapter.py` uses for labeling), using `UCI_LimitStrength`/
+  `UCI_Elo` to set a target strength - with the explicit, load-bearing caveat that this is a
+  chess-calibrated mechanism whose meaning for the Janggi variant is unverified, so results are
+  reported as "vs Fairy-Stockfish at UCI_Elo=N," never translated into a dan-rank claim. Three real
+  data points characterize v2's strength curve: **UCI_Elo 500 → 65.0% score (4-1-5, v2 wins)**,
+  **UCI_Elo 800 → 40.0% (0-2-8, v2 already behind)**, **UCI_Elo 1200 → 0.0% (0-10-0, total
+  shutout)** - the 0-10 result was verified not to be a bug (v2 still beat random normally right
+  after). The real crossover point (~50% score) sits roughly in the UCI_Elo 600-700 range by
+  interpolation. A direct web search for a Janggi dan-to-Elo conversion found none exists publicly
+  - Janggi's own amateur rank structure (15급 to 7단) is documented, but nothing connects it
+  numerically to Elo or engine strength, so this bracket is reported as exactly what it is (a real
+  bound against a real engine) and explicitly not translated into any dan-rank claim. See
+  `docs/BENCHMARK_PLAN.md`'s Phase 6 section for the full numbers.
+- **Phase 6 iteration 2 (v3): a null result, reported honestly.** Repeated the exact recipe -
+  25,000 more on-policy positions, this time generated from `sinsan-v2-56x7`'s policy instead of
+  v1's, combined into a 100,000-position mixture, same 56x7 architecture (`sinsan-v3-56x7`).
+  Trained cleanly (94.3 min, 100% legal-move rate) but showed **no measurable improvement**: v3 vs
+  v2 head-to-head came back dead even (1-1-18, 50.0%), and v3 vs Fairy-Stockfish at UCI_Elo=800
+  produced the *identical* win/loss/draw counts as v2 (0-2-8, 40.0%) - two independent
+  confirmations of the same null result. The honest read: iteration 1's real gain (random-only to
+  on-policy data) didn't repeat when the same recipe was applied a second time - the easy
+  improvement was already captured, and pushing the real strength ceiling further (currently ~Elo
+  600-700 against Fairy-Stockfish) would need a different lever, not another identical round.
+- **Not yet started:** search-guided self-play (rejected on time grounds - too slow to generate at
+  scale, see `docs/BENCHMARK_PLAN.md`), value calibration, and the `/analysis`, `/research`,
+  `/about` routes. See `docs/BENCHMARK_PLAN.md` for what's measured vs. planned.
 
 ## Requirements
 
@@ -139,8 +182,36 @@ uv run python export/dump_parity_fixture.py --checkpoint baseline-48x6.pt --data
 cd .. && SINSAN_MODEL_NAME=sinsan-baseline-v0 node --test 'tests/model/model-runtime-parity.test.ts'
 ```
 
-The playable board's AI dropdown already offers both variants (smoke and baseline, policy-only
-and 16-visit search) - `sinsan-baseline-v0` is the default selection.
+The playable board's AI dropdown offers all three model variants (smoke, baseline, v2), each with
+policy-only and 16/64-visit search - `sinsan-v2-56x7` at 16-visit search is the default selection.
+
+## Running an on-policy self-play iteration (Phase 6)
+
+```sh
+node training/generate/self-play.ts 25000 policy-v1-positions.jsonl \
+  --player policy:sinsan-baseline-v0 --temperature 1.0   # slow - inference-bound, ~2-3hr for 25K
+cd training && uv run python generate/label_dataset.py --input policy-v1-positions.jsonl --output policy-v1-labeled.jsonl
+python3 generate/combine_datasets.py --input baseline-labeled.jsonl policy-v1-labeled.jsonl --output combined-v2-labeled.jsonl
+uv run python train/train.py --dataset combined-v2-labeled.jsonl --channels 56 --blocks 7 \
+  --epochs 20 --batch-size 256 --checkpoint-out baseline-v2-56x7.pt
+uv run python export/export.py --checkpoint baseline-v2-56x7.pt --channels 56 --blocks 7 \
+  --model-name sinsan-v2-56x7 --training-run phase6-onpolicy-v1
+uv run python export/dump_parity_fixture.py --checkpoint baseline-v2-56x7.pt --dataset combined-v2-labeled.jsonl \
+  --channels 56 --blocks 7 --model-name sinsan-v2-56x7
+cd .. && SINSAN_MODEL_NAME=sinsan-v2-56x7 node --test 'tests/model/**/*.test.ts'
+node apps/arena/src/run.ts --a "policy:sinsan-v2-56x7" --b "policy:sinsan-baseline-v0" --pairs 20
+```
+
+`--player policy:<model>` uses temperature-sampling (not greedy argmax) over the model's own
+policy logits so games stay diverse - an all-greedy self-play policy collapses to a handful of
+repeated lines, which is a weak training set regardless of how good the policy itself is.
+Search-guided self-play was considered and rejected for this scale: a single 16-visit search call
+measures ~10.5s for the baseline model (`docs/BENCHMARK_PLAN.md`), making even a modest dataset
+take many hours to generate: policy-only inference is ~15-30x faster and is what actually makes an
+on-policy dataset tractable at 10K+ positions in one session.
+`training/generate/combine_datasets.py` offsets `game_id` per input file so `train.py`'s
+`game_id % 10` split-bucket logic never coincidentally merges unrelated games from different
+sources just because they reused small `game_id` numbers independently.
 
 ## Arena (paired matches between two players)
 
@@ -148,15 +219,24 @@ and 16-visit search) - `sinsan-baseline-v0` is the default selection.
 node apps/arena/src/run.ts --a "policy:sinsan-baseline-v0" --b random --pairs 20
 node apps/arena/src/run.ts --a "search:sinsan-baseline-v0:16" --b random --pairs 10  # slower - real per-move search
 node apps/arena/src/run.ts --a "search:sinsan-baseline-v0:16" --b "policy:sinsan-baseline-v0" --pairs 10
+node apps/arena/src/run.ts --a "policy:sinsan-v2-56x7" --b "policy:sinsan-baseline-v0" --pairs 20  # v2 vs v1
+node apps/arena/src/run.ts --a "search:sinsan-v2-56x7:16" --b "stockfish:1500:100" --pairs 10  # vs real engine
 ```
 
 `apps/arena` (docs/ARCHITECTURE.md) calls `SinsanModel.infer()` directly - no Worker/fetch, since
 that boundary is specifically about the shipped browser artifact and this tool never ships to the
 browser. Each pair plays one random formation-combo opening twice with colors reversed, to cancel
 first-move/formation bias (docs/BENCHMARK_PLAN.md Section 18.3). Player specs: `random`,
-`policy:<model-name>` (greedy policy, no search), `search:<model-name>:<visits>` (PUCT). Reports
-win/loss/draw counts and a rough Elo-difference estimate - explicitly labeled small-sample/
-directional, not a calibrated rating (that needs many more games than a few dozen).
+`policy:<model-name>` (greedy policy, no search), `search:<model-name>:<visits>` (PUCT),
+`stockfish:<elo|full>[:<movetimeMs>]` (drives a real Fairy-Stockfish subprocess over UCI, the same
+protocol `training/teacher/adapter.py` uses to label data - `elo` sets `UCI_LimitStrength`+
+`UCI_Elo`, `full` runs it unrestricted, `movetimeMs` defaults to 100). Reports win/loss/draw counts
+and a rough Elo-difference estimate - explicitly labeled small-sample/directional, not a calibrated
+rating (that needs many more games than a few dozen). **On the `stockfish` player specifically:**
+`UCI_Elo` is a chess-calibrated Stockfish mechanism - whether a given value means the same real
+strength in the Janggi variant is unverified, and there is no known Elo-to-Korean-dan conversion
+this project has access to, so results are reported as "vs Fairy-Stockfish at UCI_Elo=N," never
+translated into a dan-rank or absolute-strength claim (see `docs/BENCHMARK_PLAN.md`).
 
 ## Differential testing (rules engine vs. pyffish)
 

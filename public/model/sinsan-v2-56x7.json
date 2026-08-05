@@ -1,0 +1,316 @@
+{
+  "format_version": 1,
+  "model_name": "sinsan-v2-56x7",
+  "architecture": {
+    "channels": 56,
+    "blocks": 7,
+    "kind": "main-candidate"
+  },
+  "input_shape": [
+    15,
+    10,
+    9
+  ],
+  "policy_shape": [
+    5401
+  ],
+  "parameter_count": 445706,
+  "quantization": "int8-per-output-channel-symmetric-weight-only",
+  "weights_bytes": 452272,
+  "sha256": "177920cd53a7ecc2c9980c78d35733a4a39c010fc22ac1e1b54b420a7ba4007a",
+  "training_run": "phase6-onpolicy-v1",
+  "rule_profile": "kja",
+  "layers": [
+    {
+      "name": "stem",
+      "type": "conv2d",
+      "weight_shape": [
+        56,
+        15,
+        3,
+        3
+      ],
+      "weight_offset": 0,
+      "weight_bytes": 7560,
+      "scale_offset": 7560,
+      "bias_offset": 7784,
+      "padding": 1
+    },
+    {
+      "name": "tower.0.conv1",
+      "type": "conv2d",
+      "weight_shape": [
+        56,
+        56,
+        3,
+        3
+      ],
+      "weight_offset": 8008,
+      "weight_bytes": 28224,
+      "scale_offset": 36232,
+      "bias_offset": 36456,
+      "padding": 1
+    },
+    {
+      "name": "tower.0.conv2",
+      "type": "conv2d",
+      "weight_shape": [
+        56,
+        56,
+        3,
+        3
+      ],
+      "weight_offset": 36680,
+      "weight_bytes": 28224,
+      "scale_offset": 64904,
+      "bias_offset": 65128,
+      "padding": 1
+    },
+    {
+      "name": "tower.1.conv1",
+      "type": "conv2d",
+      "weight_shape": [
+        56,
+        56,
+        3,
+        3
+      ],
+      "weight_offset": 65352,
+      "weight_bytes": 28224,
+      "scale_offset": 93576,
+      "bias_offset": 93800,
+      "padding": 1
+    },
+    {
+      "name": "tower.1.conv2",
+      "type": "conv2d",
+      "weight_shape": [
+        56,
+        56,
+        3,
+        3
+      ],
+      "weight_offset": 94024,
+      "weight_bytes": 28224,
+      "scale_offset": 122248,
+      "bias_offset": 122472,
+      "padding": 1
+    },
+    {
+      "name": "tower.2.conv1",
+      "type": "conv2d",
+      "weight_shape": [
+        56,
+        56,
+        3,
+        3
+      ],
+      "weight_offset": 122696,
+      "weight_bytes": 28224,
+      "scale_offset": 150920,
+      "bias_offset": 151144,
+      "padding": 1
+    },
+    {
+      "name": "tower.2.conv2",
+      "type": "conv2d",
+      "weight_shape": [
+        56,
+        56,
+        3,
+        3
+      ],
+      "weight_offset": 151368,
+      "weight_bytes": 28224,
+      "scale_offset": 179592,
+      "bias_offset": 179816,
+      "padding": 1
+    },
+    {
+      "name": "tower.3.conv1",
+      "type": "conv2d",
+      "weight_shape": [
+        56,
+        56,
+        3,
+        3
+      ],
+      "weight_offset": 180040,
+      "weight_bytes": 28224,
+      "scale_offset": 208264,
+      "bias_offset": 208488,
+      "padding": 1
+    },
+    {
+      "name": "tower.3.conv2",
+      "type": "conv2d",
+      "weight_shape": [
+        56,
+        56,
+        3,
+        3
+      ],
+      "weight_offset": 208712,
+      "weight_bytes": 28224,
+      "scale_offset": 236936,
+      "bias_offset": 237160,
+      "padding": 1
+    },
+    {
+      "name": "tower.4.conv1",
+      "type": "conv2d",
+      "weight_shape": [
+        56,
+        56,
+        3,
+        3
+      ],
+      "weight_offset": 237384,
+      "weight_bytes": 28224,
+      "scale_offset": 265608,
+      "bias_offset": 265832,
+      "padding": 1
+    },
+    {
+      "name": "tower.4.conv2",
+      "type": "conv2d",
+      "weight_shape": [
+        56,
+        56,
+        3,
+        3
+      ],
+      "weight_offset": 266056,
+      "weight_bytes": 28224,
+      "scale_offset": 294280,
+      "bias_offset": 294504,
+      "padding": 1
+    },
+    {
+      "name": "tower.5.conv1",
+      "type": "conv2d",
+      "weight_shape": [
+        56,
+        56,
+        3,
+        3
+      ],
+      "weight_offset": 294728,
+      "weight_bytes": 28224,
+      "scale_offset": 322952,
+      "bias_offset": 323176,
+      "padding": 1
+    },
+    {
+      "name": "tower.5.conv2",
+      "type": "conv2d",
+      "weight_shape": [
+        56,
+        56,
+        3,
+        3
+      ],
+      "weight_offset": 323400,
+      "weight_bytes": 28224,
+      "scale_offset": 351624,
+      "bias_offset": 351848,
+      "padding": 1
+    },
+    {
+      "name": "tower.6.conv1",
+      "type": "conv2d",
+      "weight_shape": [
+        56,
+        56,
+        3,
+        3
+      ],
+      "weight_offset": 352072,
+      "weight_bytes": 28224,
+      "scale_offset": 380296,
+      "bias_offset": 380520,
+      "padding": 1
+    },
+    {
+      "name": "tower.6.conv2",
+      "type": "conv2d",
+      "weight_shape": [
+        56,
+        56,
+        3,
+        3
+      ],
+      "weight_offset": 380744,
+      "weight_bytes": 28224,
+      "scale_offset": 408968,
+      "bias_offset": 409192,
+      "padding": 1
+    },
+    {
+      "name": "policy_conv",
+      "type": "conv2d",
+      "weight_shape": [
+        60,
+        56,
+        3,
+        3
+      ],
+      "weight_offset": 409416,
+      "weight_bytes": 30240,
+      "scale_offset": 439656,
+      "bias_offset": 439896,
+      "padding": 1
+    },
+    {
+      "name": "pass_head",
+      "type": "linear",
+      "weight_shape": [
+        1,
+        56
+      ],
+      "weight_offset": 440136,
+      "weight_bytes": 56,
+      "scale_offset": 440192,
+      "bias_offset": 440196
+    },
+    {
+      "name": "value_conv",
+      "type": "conv2d",
+      "weight_shape": [
+        4,
+        56,
+        1,
+        1
+      ],
+      "weight_offset": 440200,
+      "weight_bytes": 224,
+      "scale_offset": 440424,
+      "bias_offset": 440440,
+      "padding": 0
+    },
+    {
+      "name": "value_fc1",
+      "type": "linear",
+      "weight_shape": [
+        32,
+        360
+      ],
+      "weight_offset": 440456,
+      "weight_bytes": 11520,
+      "scale_offset": 451976,
+      "bias_offset": 452104
+    },
+    {
+      "name": "value_fc2",
+      "type": "linear",
+      "weight_shape": [
+        1,
+        32
+      ],
+      "weight_offset": 452232,
+      "weight_bytes": 32,
+      "scale_offset": 452264,
+      "bias_offset": 452268
+    }
+  ]
+}

@@ -14,10 +14,11 @@ import { createInitialPosition } from '../packages/rules/src/index.ts';
 import type { ModelManifest } from '../packages/model-runtime/src/index.ts';
 
 const repoRoot = join(import.meta.dirname, '..');
+const modelName = process.env.SINSAN_MODEL_NAME ?? 'sinsan-smoke-v0';
 const manifest: ModelManifest = JSON.parse(
-  readFileSync(join(repoRoot, 'public', 'model', 'sinsan-smoke-v0.json'), 'utf8'),
+  readFileSync(join(repoRoot, 'public', 'model', `${modelName}.json`), 'utf8'),
 );
-const weightsBuffer = new Uint8Array(readFileSync(join(repoRoot, 'public', 'model', 'sinsan-smoke-v0.bin'))).buffer;
+const weightsBuffer = new Uint8Array(readFileSync(join(repoRoot, 'public', 'model', `${modelName}.bin`))).buffer;
 
 function percentile(sorted: number[], p: number): number {
   return sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))]!;

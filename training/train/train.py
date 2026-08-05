@@ -115,6 +115,10 @@ def legal_move_rate(model: SinsanTinyNet, records: list[dict], batch_size: int) 
 
 
 def main() -> None:
+    sys.stdout.reconfigure(line_buffering=True)  # stdout defaults to fully block-buffered when
+    # redirected to a file (not a TTY) - a 20-epoch run's total print output is only a few KB,
+    # small enough that the buffer might never auto-flush before the process exits, making a
+    # long background run look silent/stuck even when it's progressing normally.
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dataset", default="smoke-labeled.jsonl", help="filename under training/datasets/")
     parser.add_argument("--channels", type=int, default=32)

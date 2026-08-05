@@ -59,6 +59,15 @@ body {
   cursor: pointer;
 }
 
+/* `background: transparent` on the closed <select> doesn't reliably reach the native dropdown
+   popup's <option> list across browsers - it was falling back to a low-contrast OS default
+   instead of following the page theme. Set explicitly so the open dropdown stays readable in
+   both light and dark mode. */
+.sinsan-controls select option {
+  background: var(--sinsan-bg);
+  color: var(--sinsan-ink);
+}
+
 .sinsan-controls button:disabled {
   opacity: 0.4;
   cursor: default;

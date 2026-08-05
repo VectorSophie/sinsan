@@ -15,17 +15,33 @@ import type { ModelWorkerClient } from '@sinsan/model-runtime';
 import { SearchTree } from '@sinsan/search';
 import type { PositionEvaluation } from '@sinsan/search';
 
-const SEARCH_VISITS = 16; // Section 16's "Intermediate: 16 visits" tier - kept small here for a
-// responsive live demo; 64/128 ("Advanced"/"Sinsan") are supported by the same API but not wired
-// into this UI given the smoke model's current ~60-100ms/inference cost (docs/BENCHMARK_PLAN.md).
+// Section 16's visit tiers. 16 stays responsive for a live demo; 64 ("Advanced") is real search
+// depth for stronger play at the cost of being slow (each visit is a model call - expect roughly
+// 4x a 16-visit move's latency, which was ~10.5s for the baseline model at time of writing per
+// docs/BENCHMARK_PLAN.md, so 64 visits is closer to 40s/move - offered anyway since search depth
+// is the single biggest lever on real playing strength this project has, and hiding it isn't
+// honest just because it's slow. 128 ("Sinsan") is still not wired in - even slower, unverified
+// whether it's worth the wait over 64.
+const SEARCH_TIERS = [16, 64] as const;
 
 const MODEL_VARIANTS = {
-  smoke: { modelName: 'sinsan-smoke-v0', label: 'smoke, 32x4' },
-  baseline: { modelName: 'sinsan-baseline-v0', label: 'baseline, 48x6' },
+  smoke: { modelName: 'sinsan-smoke-v0', label: 'Smoke' },
+  baseline: { modelName: 'sinsan-baseline-v0', label: 'Baseline' },
+  v2: { modelName: 'sinsan-v2-56x7', label: 'V2' },
+  v3: { modelName: 'sinsan-v3-56x7', label: 'V3' },
 } as const;
 type ModelVariant = keyof typeof MODEL_VARIANTS;
 
 const FORMATIONS: Formation[] = ['masang-sangma', 'sangma-masang', 'masang-masang', 'sangma-sangma'];
+// 마상 (masang) = horse-then-elephant, 상마 (sangma) = elephant-then-horse - the two orders each
+// side can set its own left/right wing to at setup. Display labels are the real Hangul terms for
+// these, not the internal English-romanized Formation identifiers used everywhere else in code.
+const FORMATION_LABELS: Record<Formation, string> = {
+  'masang-sangma': '마상-상마',
+  'sangma-masang': '상마-마상',
+  'masang-masang': '마상-마상',
+  'sangma-sangma': '상마-상마',
+};
 const HUMAN_MOVE_MS = 180;
 const AI_MOVE_MS = 230;
 const AI_THINK_DELAY_MS = 350;
@@ -36,23 +52,29 @@ app.innerHTML = `
   <div class="sinsan-controls">
     <label>Play as
       <select id="human-side">
-        <option value="cho">Cho (블루)</option>
-        <option value="han">Han (레드)</option>
+        <option value="cho">Cho (초)</option>
+        <option value="han">Han (한)</option>
       </select>
     </label>
     <label>Cho formation
-      <select id="setup-cho">${FORMATIONS.map((f) => `<option value="${f}">${f}</option>`).join('')}</select>
+      <select id="setup-cho">${FORMATIONS.map((f) => `<option value="${f}">${FORMATION_LABELS[f]}</option>`).join('')}</select>
     </label>
     <label>Han formation
-      <select id="setup-han">${FORMATIONS.map((f) => `<option value="${f}">${f}</option>`).join('')}</select>
+      <select id="setup-han">${FORMATIONS.map((f) => `<option value="${f}">${FORMATION_LABELS[f]}</option>`).join('')}</select>
     </label>
     <label>AI
       <select id="ai-type">
         <option value="random">Random</option>
-        <option value="model:smoke">Sinsan (${MODEL_VARIANTS.smoke.label}, policy only)</option>
-        <option value="model:baseline">Sinsan (${MODEL_VARIANTS.baseline.label}, policy only)</option>
-        <option value="search16:smoke">Sinsan (${MODEL_VARIANTS.smoke.label}, ${SEARCH_VISITS}-visit search)</option>
-        <option value="search16:baseline" selected>Sinsan (${MODEL_VARIANTS.baseline.label}, ${SEARCH_VISITS}-visit search)</option>
+        ${(Object.keys(MODEL_VARIANTS) as ModelVariant[])
+          .map((v) => `<option value="model:${v}">Sinsan (${MODEL_VARIANTS[v].label}, policy only)</option>`)
+          .join('')}
+        ${SEARCH_TIERS.flatMap((visits) =>
+          (Object.keys(MODEL_VARIANTS) as ModelVariant[]).map(
+            (v) =>
+              `<option value="search:${visits}:${v}"${visits === 16 && v === 'v3' ? ' selected' : ''}>` +
+              `Sinsan (${MODEL_VARIANTS[v].label}, ${visits}-visit search)</option>`,
+          ),
+        ).join('')}
       </select>
     </label>
   </div>
@@ -189,17 +211,17 @@ const searchTrees = new Map<ModelVariant, SearchTree>();
 /** PUCT/MCTS play (Section 16) - reuses the same tree across the game's moves via SearchTree
  * (Phase 4's search deliverable), not a fresh tree every call. Kept per-variant so switching the
  * AI dropdown mid-session doesn't hand one variant's tree to another variant's evaluator. */
-async function pickSearchMove(current: Position, variant: ModelVariant): Promise<Move> {
+async function pickSearchMove(current: Position, variant: ModelVariant, visits: number): Promise<Move> {
   let searchTree = searchTrees.get(variant);
   if (!searchTree) {
     searchTree = new SearchTree(modelEvaluator(variant));
     searchTrees.set(variant, searchTree);
   }
   const start = performance.now();
-  const result = await searchTree.getMove(current, SEARCH_VISITS);
+  const result = await searchTree.getMove(current, visits);
   const elapsedMs = performance.now() - start;
   aiInfoEl.textContent =
-    `Sinsan (${MODEL_VARIANTS[variant].label}, ${SEARCH_VISITS}-visit search): value=${result.rootValue.toFixed(2)}, ` +
+    `Sinsan (${MODEL_VARIANTS[variant].label}, ${visits}-visit search): value=${result.rootValue.toFixed(2)}, ` +
     `${result.visitsUsed} visits used, ${elapsedMs.toFixed(0)}ms`;
   return result.move;
 }
@@ -212,15 +234,14 @@ function pickRandomMove(current: Position): Move {
 }
 
 async function pickAiMove(current: Position): Promise<Move> {
-  const [kind, variant] = aiTypeSelect.value.split(':') as [string, ModelVariant | undefined];
-  switch (kind) {
-    case 'model':
-      return pickModelMove(current, variant!);
-    case 'search16':
-      return pickSearchMove(current, variant!);
-    default:
-      return pickRandomMove(current);
+  const parts = aiTypeSelect.value.split(':');
+  if (parts[0] === 'model') {
+    return pickModelMove(current, parts[1] as ModelVariant);
   }
+  if (parts[0] === 'search') {
+    return pickSearchMove(current, parts[2] as ModelVariant, Number(parts[1]));
+  }
+  return pickRandomMove(current);
 }
 
 function maybeScheduleAiMove(): void {

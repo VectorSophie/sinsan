@@ -4,6 +4,7 @@ import {
   conv2d,
   globalAveragePool,
   linear,
+  makeTensor3D,
   reluInPlace,
   reluVectorInPlace,
   tanhVector,
@@ -15,9 +16,14 @@ interface DequantizedLayer {
   readonly bias: Float32Array;
   readonly outChannels: number;
   readonly padding: number;
+  /** Reused across every infer() call instead of conv2d allocating a fresh Tensor3D each time -
+   * every layer's output shape is fixed for a given model (this architecture never changes
+   * spatial dims), so this is safe to size once at construction. See tensor-ops.ts's conv2d for
+   * why this was the identified-but-not-yet-implemented follow-up to the padding investigation. */
+  readonly outputBuffer: Tensor3D;
 }
 
-function dequantizeLayer(weightsView: DataView, manifest: LayerManifest): DequantizedLayer {
+function dequantizeLayer(weightsView: DataView, manifest: LayerManifest, height: number, width: number): DequantizedLayer {
   const outChannels = manifest.weight_shape[0]!;
   const perChannelElements = manifest.weight_bytes / outChannels;
 
@@ -37,7 +43,7 @@ function dequantizeLayer(weightsView: DataView, manifest: LayerManifest): Dequan
 
   const bias = new Float32Array(weightsView.buffer.slice(weightsView.byteOffset + manifest.bias_offset, weightsView.byteOffset + manifest.bias_offset + outChannels * 4));
 
-  return { weight, bias, outChannels, padding: manifest.padding ?? 0 };
+  return { weight, bias, outChannels, padding: manifest.padding ?? 0, outputBuffer: makeTensor3D(outChannels, height, width) };
 }
 
 export interface InferenceResult {
@@ -59,7 +65,8 @@ export class SinsanModel {
 
   constructor(manifest: ModelManifest, weightsBuffer: ArrayBuffer) {
     const view = new DataView(weightsBuffer);
-    this.layers = new Map(manifest.layers.map((l) => [l.name, dequantizeLayer(view, l)]));
+    const [, height, width] = manifest.input_shape;
+    this.layers = new Map(manifest.layers.map((l) => [l.name, dequantizeLayer(view, l, height, width)]));
     this.blocks = manifest.architecture.blocks;
     this.inputShape = manifest.input_shape;
   }
@@ -72,7 +79,7 @@ export class SinsanModel {
 
   private convForward(input: Tensor3D, layerName: string, kernelSize: number): Tensor3D {
     const l = this.layer(layerName);
-    return conv2d(input, l.weight, l.bias, l.outChannels, kernelSize, l.padding);
+    return conv2d(input, l.weight, l.bias, l.outChannels, kernelSize, l.padding, l.outputBuffer);
   }
 
   infer(inputPlanes: Float32Array): InferenceResult {
