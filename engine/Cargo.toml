@@ -1,0 +1,21 @@
+[package]
+name = "sinsan-engine"
+version = "0.1.0"
+edition = "2021"
+description = "Janggi rules core for Sinsan: move generation and game results matching Fairy-Stockfish's `janggi` variant"
+license = "AGPL-3.0-or-later"
+
+[lib]
+name = "sinsan_engine"
+crate-type = ["rlib", "cdylib"]
+
+[features]
+python = ["dep:pyo3"]
+
+[dependencies]
+pyo3 = { version = "0.23", features = ["extension-module", "abi3-py312"], optional = true }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+debug = 1

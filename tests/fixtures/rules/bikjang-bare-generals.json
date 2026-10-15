@@ -1,7 +1,7 @@
 {
-  "description": "Both generals on column 4 (e-file) with nothing between them - the simplest possible bikjang position. Two variants below share this same board: kja ends the game as a draw, modern does not (see docs/RULES.md's RuleProfile table).",
+  "description": "Both generals on column 4 (e-file) with nothing between them - the simplest possible bikjang position. Bikjang alone never ends the game: under kja (Fairy-Stockfish janggi) the opponent must break it or pass, and only bikjang standing for a second position ends the game on points (see tests/rules/game-result.test.ts). Under modern, bikjang is ignored entirely.",
   "position": "9/4k4/9/9/9/9/9/9/4K4/9 w kja masang-sangma masang-sangma 0 1",
-  "expectedGameResult": { "winner": null, "kind": "bikjang" },
+  "expectedGameResult": null,
   "modernProfileVariant": {
     "position": "9/4k4/9/9/9/9/9/9/4K4/9 w modern masang-sangma masang-sangma 0 1",
     "expectedGameResult": null

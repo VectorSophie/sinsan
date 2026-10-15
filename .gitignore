@@ -26,3 +26,7 @@ tests/differential/cases.jsonl
 # Vendored third-party binaries fetched by scripts/build-teacher.sh
 training/teacher/bin/
 training/teacher/engine/
+
+# Janggi NNUE net (license unresolved - local use only, see docs/licenses.md)
+training/teacher/nnue/
+tests/differential/engine-games.jsonl

@@ -4,7 +4,11 @@ version = "0.0.0"
 requires-python = ">=3.12"
 dependencies = [
   "pyffish>=0.0.89",
-  "torch>=2.4",
+  # Pinned to the CUDA 12.8 build: supports Blackwell (sm_120) and is already in the local uv cache,
+  # which matters on this host's slow network.
+  "torch==2.9.1",
+  "numpy>=2.0",
+  "maturin>=1.7",
 ]
 
 [tool.uv]

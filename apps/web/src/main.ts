@@ -107,17 +107,24 @@ let aiTimer: ReturnType<typeof setTimeout> | undefined;
 
 function resultText(result: GameResult): string {
   const winnerName = result.winner === 'cho' ? 'Cho' : result.winner === 'han' ? 'Han' : null;
+  // Bikjang, double pass, the move limit and repetition are decided by points under the default
+  // rules, and drawn only under profiles without point counting.
+  const byPoints = (what: string): string => (winnerName ? `${what} - ${winnerName} wins on points.` : `${what} - draw.`);
   switch (result.kind) {
     case 'checkmate':
       return `Checkmate - ${winnerName} wins.`;
+    case 'stalemate':
+      return `No legal moves - ${winnerName} wins.`;
     case 'bikjang':
-      return 'Bikjang - draw.';
+      return byPoints('Bikjang');
+    case 'double-pass':
+      return byPoints('Both sides passed');
+    case 'move-limit':
+      return byPoints('No-capture limit reached');
     case 'repetition':
-      return 'Repetition - draw.';
-    case 'draw':
-      return 'Draw (no-capture limit reached).';
-    case 'material-adjudication':
-      return `Material adjudication - ${winnerName} wins.`;
+      return byPoints('Repetition');
+    case 'perpetual-check':
+      return `Perpetual check - ${winnerName} wins.`;
     case 'timeout':
       return `Timeout - ${winnerName} wins.`;
     case 'resignation':
