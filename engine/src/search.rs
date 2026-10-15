@@ -440,6 +440,18 @@ impl Tree {
         Some((self.nodes[first + best].mv, policy, self.root_value()))
     }
 
+    pub fn principal_variation(&self, max_len: usize) -> Vec<Move> {
+        let mut pv = Vec::new();
+        let mut idx = 0usize;
+        while pv.len() < max_len && self.nodes[idx].state == EXPANDED {
+            let (first, count) = (self.nodes[idx].first_child as usize, self.nodes[idx].num_children as usize);
+            let Some(best) = (first..first + count).filter(|&i| self.nodes[i].n > 0).max_by_key(|&i| self.nodes[i].n) else { break };
+            pv.push(self.nodes[best].mv);
+            idx = best;
+        }
+        pv
+    }
+
     pub fn root_expanded(&self) -> bool {
         self.nodes[0].state == EXPANDED
     }

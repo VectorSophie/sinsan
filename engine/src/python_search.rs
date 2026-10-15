@@ -64,6 +64,28 @@ impl PySearchBatch {
         self.trees.get(slot).is_some_and(|t| t.is_some())
     }
 
+    /// Like set_root, but from a FEN (any position, e.g. a GUI's custom setup) plus moves.
+    fn set_root_fen(&mut self, slot: usize, fen: &str, moves: Vec<String>) -> PyResult<()> {
+        let mut game = Game::from_fen(fen).map_err(PyValueError::new_err)?;
+        for m in &moves {
+            let mv = parse_uci(m).ok_or_else(|| PyValueError::new_err(format!("bad move {m:?}")))?;
+            if !game.legal_moves().contains(&mv) {
+                return Err(PyValueError::new_err(format!("illegal move {m}")));
+            }
+            game.push(mv);
+        }
+        if slot >= self.trees.len() {
+            self.trees.resize_with(slot + 1, || None);
+        }
+        self.trees[slot] = Some(Tree::new(game, self.params));
+        Ok(())
+    }
+
+    /// Principal variation from the root: most-visited child at each step.
+    fn principal_variation(&self, slot: usize, max_len: usize) -> Vec<String> {
+        self.trees[slot].as_ref().map_or(Vec::new(), |t| t.principal_variation(max_len).into_iter().map(|m| m.uci()).collect())
+    }
+
     fn clear_slot(&mut self, slot: usize) {
         if slot < self.trees.len() {
             self.trees[slot] = None;
