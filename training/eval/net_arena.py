@@ -36,11 +36,12 @@ MAX_PLIES = 600
 class NetEvaluator:
     """Loads a checkpoint and evaluates SearchBatch leaves on the GPU."""
 
-    def __init__(self, path: str, device: torch.device) -> None:
+    def __init__(self, path: str, device: torch.device, compile_model: bool = True) -> None:
         ck = torch.load(path, map_location=device)
         self.model = build_net(NetConfig(**ck["net"])).to(device).eval()
         self.model.load_state_dict(ck["ema"] if "ema" in ck else ck["model"])
         self.device = device
+        self.infer = torch.compile(self.model.infer, dynamic=True) if compile_model else self.model.infer
 
     @torch.inference_mode()
     def __call__(self, batch: dict) -> tuple[bytes, bytes]:
@@ -52,9 +53,9 @@ class NetEvaluator:
         rows = torch.repeat_interleave(torch.arange(n, device=self.device),
                                        torch.from_numpy(np.diff(offsets).astype(np.int64)).to(self.device))
         with torch.autocast("cuda", dtype=torch.bfloat16):
-            out = self.model(boards, scalars)
-        logits = out["policy"].float()[rows, actions]
-        wdl = torch.softmax(out["wdl"].float(), 1)
+            policy, wdl_logits, _ = self.infer(boards, scalars)
+        logits = policy.float()[rows, actions]
+        wdl = torch.softmax(wdl_logits.float(), 1)
         values = wdl[:, 0] - wdl[:, 2]
         return logits.cpu().numpy().tobytes(), values.cpu().numpy().tobytes()
 

@@ -189,6 +189,23 @@ class SinsanCNN(nn.Module):
         out.update(policy=logits[:, 0], soft=logits[:, 1], opp=logits[:, 2], q=logits[:, 3])
         return out
 
+    def infer(self, boards: torch.Tensor, scalars: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Search-time forward: only the main policy, WDL and margin heads (the auxiliary policy
+        maps are three quarters of the head cost and unused in search)."""
+        x = self.stem(build_planes(boards, scalars))
+        for blk in self.blocks:
+            x = blk(x)
+        x = mish(self.trunk_bn(x))
+        b = x.shape[0]
+        p_rest, bias, pooled = self.p_pool(self.p_conv(x))
+        pass_logit = F.linear(pooled, self.p_pass.weight[:1], self.p_pass.bias[:1])
+        h = mish(self.p_bn(p_rest + bias))
+        maps = F.conv2d(h, self.p_out.weight[:TEMPLATES], self.p_out.bias[:TEMPLATES])
+        policy = torch.cat([maps.view(b, TEMPLATES, SQUARES).transpose(1, 2).reshape(b, SQUARES * TEMPLATES), pass_logit], 1)
+        v = mish(self.v_bn(self.v_conv(x)))
+        out = self.value(torch.cat([v.mean((2, 3)), v.amax((2, 3))], 1))
+        return policy, out["wdl"], out["margin"]
+
 
 # ----------------------------------------------------------------------------------------------
 # Transformer (Lc0-style, one token per square)
@@ -269,6 +286,10 @@ class SinsanTransformer(nn.Module):
         out = self.value(pooled)
         out.update(policy=logits[:, 0], soft=logits[:, 1], opp=logits[:, 2], q=logits[:, 3])
         return out
+
+    def infer(self, boards: torch.Tensor, scalars: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        out = self.forward(boards, scalars)
+        return out["policy"], out["wdl"], out["margin"]
 
 
 def build_net(cfg: NetConfig) -> nn.Module:
