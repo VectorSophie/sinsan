@@ -18,11 +18,15 @@
 
 pub mod action;
 pub mod board;
+pub mod features;
 pub mod game;
+pub mod search;
 mod tables;
 
 #[cfg(feature = "python")]
 mod python;
+#[cfg(feature = "python")]
+mod python_search;
 
 pub use action::{decode_action, encode_move, ACTION_SPACE_SIZE, PASS_ACTION, TEMPLATE_COUNT};
 pub use board::{Board, Formation, Move, Piece, PieceKind, Side};

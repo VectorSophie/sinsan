@@ -13,6 +13,7 @@ crate-type = ["rlib", "cdylib"]
 python = ["dep:pyo3"]
 
 [dependencies]
+rayon = "1.10"
 pyo3 = { version = "0.23", features = ["extension-module", "abi3-py312"], optional = true }
 
 [profile.release]

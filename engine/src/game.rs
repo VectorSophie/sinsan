@@ -28,17 +28,17 @@ pub struct GameResult {
 }
 
 #[derive(Clone, Debug)]
-struct State {
-    board: Board,
-    in_check: bool,
-    bikjang: bool,
+pub(crate) struct State {
+    pub(crate) board: Board,
+    pub(crate) in_check: bool,
+    pub(crate) bikjang: bool,
     /// The move that led to this state was a pass.
-    passed: bool,
+    pub(crate) passed: bool,
 }
 
 #[derive(Clone, Debug)]
 pub struct Game {
-    states: Vec<State>,
+    pub(crate) states: Vec<State>,
     moves: Vec<Move>,
 }
 

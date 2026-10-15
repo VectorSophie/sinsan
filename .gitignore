@@ -30,3 +30,8 @@ training/teacher/engine/
 # Janggi NNUE net (license unresolved - local use only, see docs/licenses.md)
 training/teacher/nnue/
 tests/differential/engine-games.jsonl
+training/eval/results/
+training/datasets/teacher/
+training/datasets/shards/
+training/runs/
+training/eval/ladder-run.log

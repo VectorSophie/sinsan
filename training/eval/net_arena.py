@@ -1,0 +1,221 @@
+"""Batched matches for network players (P1/P3/P4 evaluation).
+
+One process drives many concurrent games. Network players search with sinsan_engine.SearchBatch,
+evaluating leaves of all their games in one GPU batch per iteration; Fairy-Stockfish opponents
+move in a thread pool. The referee is sinsan_engine (FSF janggi rules) and openings come from
+eval/openings.jsonl, each played twice with colors swapped.
+
+Player specs:
+  net:<checkpoint path>:<visits>   visits=0 plays the raw policy's top move
+  fsf:nnue:<nodes> / fsf:classical:<nodes>
+
+Run: cd training && uv run python -m eval.net_arena --a net:runs/x/ema-0100000.pt:0 --b fsf:nnue:1000 --pairs 200
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import time
+from concurrent.futures import Future, ThreadPoolExecutor
+from pathlib import Path
+
+import numpy as np
+import sinsan_engine as se
+import torch
+
+from eval.rating import pentanomial_elo
+from eval.uci import fairy_stockfish
+from model.sinsan_net import NetConfig, build_net
+
+OPENINGS = Path(__file__).parent / "openings.jsonl"
+MAX_PLIES = 600
+
+
+class NetEvaluator:
+    """Loads a checkpoint and evaluates SearchBatch leaves on the GPU."""
+
+    def __init__(self, path: str, device: torch.device) -> None:
+        ck = torch.load(path, map_location=device)
+        self.model = build_net(NetConfig(**ck["net"])).to(device).eval()
+        self.model.load_state_dict(ck["ema"] if "ema" in ck else ck["model"])
+        self.device = device
+
+    @torch.inference_mode()
+    def __call__(self, batch: dict) -> tuple[bytes, bytes]:
+        n = batch["count"]
+        boards = torch.frombuffer(bytearray(batch["boards"]), dtype=torch.uint8).view(n, 4, 90).to(self.device, non_blocking=True)
+        scalars = torch.frombuffer(bytearray(batch["scalars"]), dtype=torch.float32).view(n, -1).to(self.device, non_blocking=True)
+        actions = torch.frombuffer(bytearray(batch["actions"]), dtype=torch.int32).to(self.device).long()
+        offsets = np.frombuffer(batch["offsets"], np.int32)
+        rows = torch.repeat_interleave(torch.arange(n, device=self.device),
+                                       torch.from_numpy(np.diff(offsets).astype(np.int64)).to(self.device))
+        with torch.autocast("cuda", dtype=torch.bfloat16):
+            out = self.model(boards, scalars)
+        logits = out["policy"].float()[rows, actions]
+        wdl = torch.softmax(out["wdl"].float(), 1)
+        values = wdl[:, 0] - wdl[:, 2]
+        return logits.cpu().numpy().tobytes(), values.cpu().numpy().tobytes()
+
+
+class NetPlayer:
+    def __init__(self, spec: str, device: torch.device, leaves_per_tree: int = 8, **search_params) -> None:
+        _, path, visits = spec.rsplit(":", 2) if spec.count(":") > 2 else spec.split(":")
+        self.spec, self.visits = spec, int(visits)
+        self.evaluate = NetEvaluator(path, device)
+        self.batch = se.SearchBatch(**search_params)
+        self.leaves = leaves_per_tree
+        self.active: set[int] = set()
+
+    def start(self, slot: int, game: dict) -> None:
+        self.batch.set_root(slot, game["cho"], game["han"], game["g"].moves())
+        self.active.add(slot)
+
+    def step(self) -> dict[int, str]:
+        """One batched search iteration over all active slots; returns finished slots' moves."""
+        if not self.active:
+            return {}
+        # The first iteration only expands roots, so collect one leaf per tree until expanded.
+        d = self.batch.collect(self.leaves, sorted(self.active))
+        if d["count"]:
+            self.batch.apply(*self.evaluate(d))
+        done = {}
+        for slot in list(self.active):
+            if not self.batch.root_expanded(slot):
+                continue
+            target = max(1, self.visits)
+            if self.visits == 0:
+                children = self.batch.root_children(slot)
+                done[slot] = max(children, key=lambda c: c[3])[0]
+            elif self.batch.root_visits(slot) >= target:
+                done[slot] = self.batch.best_move(slot)
+        for slot in done:
+            self.active.discard(slot)
+            self.batch.clear_slot(slot)
+        return done
+
+
+class FsfPool:
+    def __init__(self, spec: str, threads: int) -> None:
+        _, kind, nodes = spec.split(":")
+        self.nodes = int(nodes)
+        self.engines = [fairy_stockfish(nnue=kind == "nnue") for _ in range(threads)]
+        self.free = list(range(threads))
+        self.pool = ThreadPoolExecutor(threads)
+
+    def submit(self, game: se.Game) -> Future:
+        eid = self.free.pop()
+        root, moves = game.root_fen(), game.moves()
+        legal = game.legal_moves()
+
+        def run() -> str:
+            try:
+                info = self.engines[eid].search(root, moves, f"nodes {self.nodes}")
+                if info.bestmove in legal:
+                    return info.bestmove
+                passes = [m for m in legal if m[: len(m) // 2] == m[len(m) // 2 :]]
+                return passes[0] if passes else legal[0]
+            finally:
+                self.free.append(eid)
+
+        return self.pool.submit(run)
+
+
+def play_match(a: str, b: str, pairs: int, device: torch.device, concurrency: int, fsf_threads: int,
+               out: Path | None = None, leaves_per_tree: int = 8) -> list[float]:
+    openings = [json.loads(l) for l in OPENINGS.read_text().splitlines() if l.strip()]
+    players: dict[str, object] = {}
+    for spec in {a, b}:
+        players[spec] = NetPlayer(spec, device, leaves_per_tree) if spec.startswith("net:") else FsfPool(spec, fsf_threads)
+
+    # Queue of (pair, A plays Cho?) games; each slot holds one running game.
+    queue = [(p, a_cho) for p in range(pairs) for a_cho in (True, False)]
+    games: dict[int, dict] = {}
+    pending: dict[int, Future] = {}
+    pair_points: dict[int, float] = {}
+    pair_games: dict[int, int] = {}
+    reasons: dict[str, int] = {}
+    sink = out.open("a") if out else None
+    next_slot = 0
+    start = time.time()
+
+    def launch() -> None:
+        nonlocal next_slot
+        while queue and len(games) < concurrency:
+            p, a_cho = queue.pop(0)
+            op = openings[p % len(openings)]
+            g = se.Game(cho=op["cho"], han=op["han"])
+            for m in op["moves"]:
+                g.push(m)
+            games[next_slot] = {"pair": p, "a_cho": a_cho, "g": g, "cho": op["cho"], "han": op["han"],
+                                "sides": {"w": a if a_cho else b, "b": b if a_cho else a}, "thinking": False}
+            next_slot += 1
+
+    def finish(slot: int, result: tuple[str, str] | None) -> None:
+        gm = games.pop(slot)
+        winner, reason = result if result else (None, "max-plies")
+        a_side = "w" if gm["a_cho"] else "b"
+        pts = 1.0 if winner == a_side else (0.5 if winner is None else 0.0)
+        pair_points[gm["pair"]] = pair_points.get(gm["pair"], 0.0) + pts
+        pair_games[gm["pair"]] = pair_games.get(gm["pair"], 0) + 1
+        reasons[reason] = reasons.get(reason, 0) + 1
+        if sink:
+            sink.write(json.dumps({"a": a, "b": b, "pair": gm["pair"], "a_cho": gm["a_cho"], "winner": winner,
+                                   "reason": reason, "moves": gm["g"].moves()}) + "\n")
+
+    def play(slot: int, move: str) -> None:
+        gm = games[slot]
+        gm["g"].push(move)
+        gm["thinking"] = False
+        result = gm["g"].result()
+        if result is not None or gm["g"].plies >= MAX_PLIES:
+            finish(slot, result)
+
+    launch()
+    while games or queue:
+        for slot, gm in list(games.items()):
+            if gm["thinking"]:
+                continue
+            player = players[gm["sides"][gm["g"].side_to_move]]
+            gm["thinking"] = True
+            if isinstance(player, NetPlayer):
+                player.start(slot, gm)
+            else:
+                pending[slot] = player.submit(gm["g"])
+        for p in players.values():
+            if isinstance(p, NetPlayer):
+                for slot, move in p.step().items():
+                    play(slot, move)
+        for slot, fut in list(pending.items()):
+            if fut.done():
+                del pending[slot]
+                play(slot, fut.result())
+        if not any(isinstance(p, NetPlayer) and p.active for p in players.values()) and pending:
+            time.sleep(0.002)
+        launch()
+    if sink:
+        sink.close()
+    scores = [pair_points[p] for p in sorted(pair_points) if pair_games[p] == 2]
+    elo, lo, hi = pentanomial_elo(scores)
+    pts = sum(scores)
+    print(f"{a} vs {b}: {pts:.1f}/{2 * len(scores)} ({100 * pts / max(1, 2 * len(scores)):.1f}%), "
+          f"Elo {elo:+.0f} [{lo:+.0f}, {hi:+.0f}] in {time.time() - start:.0f}s; endings {dict(sorted(reasons.items()))}", flush=True)
+    return scores
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--a", required=True)
+    parser.add_argument("--b", required=True)
+    parser.add_argument("--pairs", type=int, default=200)
+    parser.add_argument("--device", default="cuda:0")
+    parser.add_argument("--concurrency", type=int, default=256)
+    parser.add_argument("--fsf-threads", type=int, default=64)
+    parser.add_argument("--leaves", type=int, default=8)
+    parser.add_argument("--out", type=Path, default=None)
+    args = parser.parse_args()
+    play_match(args.a, args.b, args.pairs, torch.device(args.device), args.concurrency, args.fsf_threads, args.out, args.leaves)
+
+
+if __name__ == "__main__":
+    main()
