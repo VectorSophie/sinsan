@@ -153,10 +153,25 @@ class OldNetPlayer(Player):
         return max(root["children"].items(), key=lambda kv: kv[1]["n"])[0]
 
 
+class NnuePlayer(Player):
+    """Alpha-beta + small NNUE (the browser-student candidate), fixed node budget per move."""
+
+    def __init__(self, path: str, nodes: int) -> None:
+        self.name = f"nnue:{path}:{nodes}"
+        self.weights = Path(path).read_bytes()
+        self.nodes = nodes
+
+    def choose(self, game: se.Game) -> str:
+        best, *_ = se.ab_search(self.weights, game.root_fen(), game.moves(), 64, self.nodes, 18)
+        return best
+
+
 def make_player(spec: str, seed: int = 0) -> Player:
     parts = spec.split(":")
     if parts[0] == "fsf":
         return FsfPlayer(nnue=parts[1] == "nnue", nodes=int(parts[2]))
+    if parts[0] == "nnue":
+        return NnuePlayer(":".join(parts[1:-1]), int(parts[-1]))
     if parts[0] == "random":
         return RandomPlayer(seed)
     if parts[0] == "oldnet":

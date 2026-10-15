@@ -202,6 +202,23 @@ fn encode_game<'py>(
     Ok(out)
 }
 
+/// Alpha-beta search with an SNNU network (see engine/src/alphabeta.rs).
+/// ab_search(nnue_bytes, fen, moves, max_depth=64, nodes=100000) -> (best uci, score cp, depth, nodes, pv)
+#[pyfunction]
+#[pyo3(signature = (nnue_bytes, fen, moves, max_depth=64, nodes=100_000, tt_bits=20))]
+fn ab_search(nnue_bytes: &[u8], fen: &str, moves: Vec<String>, max_depth: i32, nodes: u64, tt_bits: u32) -> PyResult<(String, i32, i32, u64, Vec<String>)> {
+    let nnue = crate::alphabeta::Nnue::from_bytes(nnue_bytes).map_err(PyValueError::new_err)?;
+    let mut game = Game::from_fen(fen).map_err(PyValueError::new_err)?;
+    for m in &moves {
+        let mv = parse_uci(m).ok_or_else(|| PyValueError::new_err(format!("bad move {m:?}")))?;
+        game.push(mv);
+    }
+    let mut ab = crate::alphabeta::AlphaBeta::new(&nnue, tt_bits);
+    let r = ab.think(&mut game, max_depth, nodes);
+    let best = r.best.map(|m| m.uci()).unwrap_or_else(|| "0000".into());
+    Ok((best, r.score, r.depth, r.nodes, r.pv.iter().map(|m| m.uci()).collect()))
+}
+
 /// perft(fen, depth, stop_at_game_end=False): leaf count of the legal-move tree.
 #[pyfunction]
 #[pyo3(signature = (fen, depth, stop_at_game_end=false))]
@@ -234,6 +251,7 @@ fn sinsan_engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(perft, m)?)?;
     m.add_function(wrap_pyfunction!(encode_uci, m)?)?;
     m.add_function(wrap_pyfunction!(encode_game, m)?)?;
+    m.add_function(wrap_pyfunction!(ab_search, m)?)?;
     m.add_function(wrap_pyfunction!(mirror_table, m)?)?;
     m.add("PASS_ACTION", PASS_ACTION)?;
     m.add("HISTORY", HISTORY)?;

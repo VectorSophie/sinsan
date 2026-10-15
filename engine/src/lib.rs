@@ -17,6 +17,7 @@
 //! back rank (rank 1). This matches `packages/rules` and `packages/action-space`.
 
 pub mod action;
+pub mod alphabeta;
 pub mod board;
 pub mod features;
 pub mod game;
