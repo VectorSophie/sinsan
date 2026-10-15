@@ -27,16 +27,21 @@ import torch
 
 from eval.rating import pentanomial_elo
 from eval.uci import fairy_stockfish
-from model.sinsan_net import NetConfig, build_net
+from model.sinsan_net import MARGIN_BINS, MARGIN_RANGE, NetConfig, build_net
 
 OPENINGS = Path(__file__).parent / "openings.jsonl"
 MAX_PLIES = 600
 
 
 class NetEvaluator:
-    """Loads a checkpoint and evaluates SearchBatch leaves on the GPU."""
+    """Loads a checkpoint and evaluates SearchBatch leaves on the GPU.
 
-    def __init__(self, path: str, device: torch.device, compile_model: bool = True) -> None:
+    margin_utility: weight of the point-margin term added to the value (F2):
+    v = P(win) - P(loss) + margin_utility * tanh(E[margin] / 20).
+    """
+
+    def __init__(self, path: str, device: torch.device, compile_model: bool = True, margin_utility: float = 0.0) -> None:
+        self.margin_utility = margin_utility
         ck = torch.load(path, map_location=device)
         self.model = build_net(NetConfig(**ck["net"])).to(device).eval()
         self.model.load_state_dict(ck["ema"] if "ema" in ck else ck["model"])
@@ -53,20 +58,43 @@ class NetEvaluator:
         rows = torch.repeat_interleave(torch.arange(n, device=self.device),
                                        torch.from_numpy(np.diff(offsets).astype(np.int64)).to(self.device))
         with torch.autocast("cuda", dtype=torch.bfloat16):
-            policy, wdl_logits, _ = self.infer(boards, scalars)
+            policy, wdl_logits, margin_logits = self.infer(boards, scalars)
         logits = policy.float()[rows, actions]
         wdl = torch.softmax(wdl_logits.float(), 1)
         values = wdl[:, 0] - wdl[:, 2]
+        if self.margin_utility:
+            centers = torch.linspace(-MARGIN_RANGE, MARGIN_RANGE, MARGIN_BINS, device=self.device)
+            expected = (torch.softmax(margin_logits.float(), 1) * centers).sum(1)
+            values = (values + self.margin_utility * torch.tanh(expected / 20.0)).clamp(-1, 1)
         return logits.cpu().numpy().tobytes(), values.cpu().numpy().tobytes()
 
 
 class NetPlayer:
-    def __init__(self, spec: str, device: torch.device, leaves_per_tree: int = 8, **search_params) -> None:
-        _, path, visits = spec.rsplit(":", 2) if spec.count(":") > 2 else spec.split(":")
-        self.spec, self.visits = spec, int(visits)
-        self.evaluate = NetEvaluator(path, device)
-        self.batch = se.SearchBatch(**search_params)
-        self.leaves = leaves_per_tree
+    """Spec: net:<checkpoint>:<visits>[:key=value,...] with keys cpuct, cpuct_base, cpuct_factor,
+    fpu, fpu_root, ptemp (search policy temperature), util (margin utility), leaves."""
+
+    SEARCH_KEYS = {"cpuct": "cpuct", "cpuct_base": "cpuct_base", "cpuct_factor": "cpuct_factor", "fpu": "fpu_reduction",
+                   "fpu_root": "fpu_reduction_root", "ptemp": "policy_temp"}
+
+    def __init__(self, spec: str, device: torch.device, leaves_per_tree: int = 8, evaluators: dict | None = None) -> None:
+        parts = spec.split(":")
+        options = {}
+        if "=" in parts[-1]:
+            options = dict(kv.split("=") for kv in parts[-1].split(","))
+            parts = parts[:-1]
+        path, visits = ":".join(parts[1:-1]), int(parts[-1])
+        self.spec, self.visits = spec, visits
+        util = float(options.get("util", 0.0))
+        key = (path, util)
+        if evaluators is not None and key in evaluators:
+            self.evaluate = evaluators[key]
+        else:
+            self.evaluate = NetEvaluator(path, device, margin_utility=util)
+            if evaluators is not None:
+                evaluators[key] = self.evaluate
+        params = {self.SEARCH_KEYS[k]: float(v) for k, v in options.items() if k in self.SEARCH_KEYS}
+        self.batch = se.SearchBatch(**params)
+        self.leaves = int(options.get("leaves", leaves_per_tree))
         self.active: set[int] = set()
         self.synced: dict[int, int] = {}
 
@@ -142,8 +170,9 @@ def play_match(a: str, b: str, pairs: int, device: torch.device, concurrency: in
                out: Path | None = None, leaves_per_tree: int = 8) -> list[float]:
     openings = [json.loads(l) for l in OPENINGS.read_text().splitlines() if l.strip()]
     players: dict[str, object] = {}
+    evaluators: dict = {}  # players sharing a checkpoint share one loaded model
     for spec in {a, b}:
-        players[spec] = NetPlayer(spec, device, leaves_per_tree) if spec.startswith("net:") else FsfPool(spec, fsf_threads)
+        players[spec] = NetPlayer(spec, device, leaves_per_tree, evaluators) if spec.startswith("net:") else FsfPool(spec, fsf_threads)
 
     # Queue of (pair, A plays Cho?) games; each slot holds one running game.
     queue = [(p, a_cho) for p in range(pairs) for a_cho in (True, False)]
