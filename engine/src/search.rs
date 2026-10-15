@@ -64,6 +64,27 @@ pub struct Tree {
     pub game: Game,
     nodes: Vec<Node>,
     params: SearchParams,
+    /// Network value of the root position (its side to move), once evaluated.
+    root_net_value: Option<f32>,
+    gumbel: Option<GumbelRoot>,
+}
+
+/// Gumbel root search state (Danihelka et al. 2022): sequential halving over m sampled actions.
+#[derive(Clone, Debug)]
+struct GumbelRoot {
+    /// Per root child (by offset): Gumbel noise and log prior.
+    g: Vec<f32>,
+    logp: Vec<f32>,
+    /// Remaining candidates (root child offsets).
+    remaining: Vec<usize>,
+    /// Cumulative visit target per remaining candidate in the current phase.
+    target: u32,
+    budget: u32,
+    /// Root visits when the search started (tree reuse may carry visits over).
+    start_n: u32,
+    phases: u32,
+    c_visit: f32,
+    c_scale: f32,
 }
 
 pub struct Leaf {
@@ -74,7 +95,7 @@ pub struct Leaf {
 
 impl Tree {
     pub fn new(game: Game, params: SearchParams) -> Tree {
-        Tree { game, nodes: vec![Node::new(Move { from: 0, to: 0 }, 1.0)], params }
+        Tree { game, nodes: vec![Node::new(Move { from: 0, to: 0 }, 1.0)], params, root_net_value: None, gumbel: None }
     }
 
     pub fn root_visits(&self) -> u32 {
@@ -159,7 +180,14 @@ impl Tree {
         loop {
             match self.nodes[idx].state {
                 EXPANDED => {
-                    let child = self.select_child(idx, idx == 0);
+                    let child = if idx == 0 && self.gumbel.is_some() {
+                        match self.gumbel_pick() {
+                            Some(c) => c,
+                            None => return None,
+                        }
+                    } else {
+                        self.select_child(idx, idx == 0)
+                    };
                     self.game.push(self.nodes[child].mv);
                     pushed += 1;
                     path.push(child as u32);
@@ -242,6 +270,9 @@ impl Tree {
             self.nodes[first + i].prior = e / sum;
         }
         self.nodes[idx].state = EXPANDED;
+        if idx == 0 {
+            self.root_net_value = Some(value);
+        }
         self.backup(&leaf.path, value, true);
     }
 
@@ -253,6 +284,160 @@ impl Tree {
             let c = &mut self.nodes[first + i];
             c.prior = (1.0 - fraction) * c.prior + fraction * z;
         }
+    }
+
+    /// Plays `mv` at the root, keeping the searched subtree below it when there is one (tree
+    /// reuse); otherwise the tree restarts from the new position.
+    pub fn advance(&mut self, mv: Move) {
+        let root = &self.nodes[0];
+        let child = if root.state == EXPANDED {
+            (0..root.num_children as usize).map(|i| root.first_child as usize + i).find(|&i| self.nodes[i].mv == mv)
+        } else {
+            None
+        };
+        self.game.push(mv);
+        self.gumbel = None;
+        self.root_net_value = None;
+        let Some(child) = child else {
+            self.nodes = vec![Node::new(Move { from: 0, to: 0 }, 1.0)];
+            return;
+        };
+        if self.nodes[child].state == PENDING || self.nodes.iter().any(|n| n.vl > 0) {
+            // Only reuse between batches, never with evaluations in flight.
+            self.nodes = vec![Node::new(Move { from: 0, to: 0 }, 1.0)];
+            return;
+        }
+        // Breadth-first copy of the subtree; children stay contiguous.
+        let mut new_nodes = vec![self.nodes[child].clone()];
+        let mut queue = std::collections::VecDeque::from([(child, 0usize)]);
+        while let Some((old, new)) = queue.pop_front() {
+            let (first, count) = (self.nodes[old].first_child as usize, self.nodes[old].num_children as usize);
+            if count == 0 || self.nodes[old].state != EXPANDED && self.nodes[old].state != TERMINAL {
+                new_nodes[new].num_children = 0;
+                new_nodes[new].first_child = 0;
+                if new_nodes[new].state != TERMINAL {
+                    new_nodes[new].state = UNEXPANDED;
+                }
+                continue;
+            }
+            let start = new_nodes.len();
+            new_nodes[new].first_child = start as u32;
+            for i in 0..count {
+                new_nodes.push(self.nodes[first + i].clone());
+                queue.push_back((first + i, start + i));
+            }
+        }
+        self.nodes = new_nodes;
+    }
+
+    /// Starts Gumbel sequential halving at an expanded root: picks the top `m` children by
+    /// g + log prior and splits `budget` visits over ceil(log2 m) halving phases.
+    pub fn gumbel_start(&mut self, m: usize, budget: u32, noise: &[f32], c_visit: f32, c_scale: f32) {
+        let r = &self.nodes[0];
+        assert!(r.state == EXPANDED, "gumbel_start needs an expanded root");
+        let (first, count) = (r.first_child as usize, r.num_children as usize);
+        let logp: Vec<f32> = (0..count).map(|i| self.nodes[first + i].prior.max(1e-12).ln()).collect();
+        let g: Vec<f32> = (0..count).map(|i| noise.get(i).copied().unwrap_or(0.0)).collect();
+        let mut order: Vec<usize> = (0..count).collect();
+        order.sort_by(|&a, &b| (g[b] + logp[b]).partial_cmp(&(g[a] + logp[a])).unwrap());
+        order.truncate(m.max(1).min(count));
+        let phases = (order.len() as f32).log2().ceil().max(1.0) as u32;
+        let per = (budget / (phases * order.len() as u32)).max(1);
+        let base = order.iter().map(|&i| self.nodes[first + i].n).max().unwrap_or(0);
+        let start_n = self.nodes[0].n;
+        self.gumbel = Some(GumbelRoot { g, logp, remaining: order, target: base + per, budget, start_n, phases, c_visit, c_scale });
+    }
+
+    fn sigma(&self, gr: &GumbelRoot, q: f32) -> f32 {
+        let r = &self.nodes[0];
+        let first = r.first_child as usize;
+        let max_n = (0..r.num_children as usize).map(|i| self.nodes[first + i].n).max().unwrap_or(0);
+        (gr.c_visit + max_n as f32) * gr.c_scale * (q + 1.0) / 2.0
+    }
+
+    fn child_q(&self, offset: usize) -> Option<f32> {
+        let c = &self.nodes[self.nodes[0].first_child as usize + offset];
+        (c.n > 0).then(|| c.w / c.n as f32)
+    }
+
+    /// Root child to visit next under sequential halving, or None while the phase waits for
+    /// in-flight evaluations (or the search is finished).
+    fn gumbel_pick(&mut self) -> Option<usize> {
+        let first = self.nodes[0].first_child as usize;
+        loop {
+            let gr = self.gumbel.as_ref()?;
+            if gr.remaining.len() <= 1 || self.nodes[0].n >= gr.start_n + gr.budget {
+                return None;
+            }
+            let pick = gr
+                .remaining
+                .iter()
+                .copied()
+                .filter(|&i| self.nodes[first + i].n + self.nodes[first + i].vl < gr.target)
+                .min_by_key(|&i| self.nodes[first + i].n + self.nodes[first + i].vl);
+            if let Some(i) = pick {
+                return Some(first + i);
+            }
+            if gr.remaining.iter().any(|&i| self.nodes[first + i].vl > 0) {
+                return None;
+            }
+            // Phase complete: keep the better half by g + log p + sigma(q).
+            let mut gr = self.gumbel.take().unwrap();
+            let mut scored: Vec<(f32, usize)> = gr
+                .remaining
+                .iter()
+                .map(|&i| (gr.g[i] + gr.logp[i] + self.sigma(&gr, self.child_q(i).unwrap_or(-1.0)), i))
+                .collect();
+            scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
+            let keep = scored.len().div_ceil(2);
+            gr.remaining = scored.into_iter().take(keep).map(|x| x.1).collect();
+            let per = (gr.budget / (gr.phases * gr.remaining.len() as u32)).max(1);
+            gr.target += per;
+            self.gumbel = Some(gr);
+        }
+    }
+
+    pub fn gumbel_done(&self) -> bool {
+        match &self.gumbel {
+            None => true,
+            Some(gr) => gr.remaining.len() <= 1 || self.nodes[0].n >= gr.start_n + gr.budget,
+        }
+    }
+
+    /// (chosen move, improved policy over root children, search value). The improved policy is
+    /// softmax(log p + sigma(completed Q)), with unvisited children completed by v_mix.
+    pub fn gumbel_result(&self) -> Option<(Move, Vec<(Move, f32)>, f32)> {
+        let gr = self.gumbel.as_ref()?;
+        let r = &self.nodes[0];
+        let (first, count) = (r.first_child as usize, r.num_children as usize);
+        let net_v = self.root_net_value.unwrap_or(0.0);
+        let (mut num, mut den, mut total_n) = (0.0f32, 0.0f32, 0u32);
+        for i in 0..count {
+            let c = &self.nodes[first + i];
+            total_n += c.n;
+            if c.n > 0 {
+                num += c.prior * c.w / c.n as f32;
+                den += c.prior;
+            }
+        }
+        let v_mix = if den > 0.0 { (net_v + total_n as f32 * num / den) / (1.0 + total_n as f32) } else { net_v };
+        let scores: Vec<f32> =
+            (0..count).map(|i| gr.logp[i] + self.sigma(gr, self.child_q(i).unwrap_or(v_mix))).collect();
+        let max = scores.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+        let exps: Vec<f32> = scores.iter().map(|s| (s - max).exp()).collect();
+        let sum: f32 = exps.iter().sum();
+        let policy = (0..count).map(|i| (self.nodes[first + i].mv, exps[i] / sum)).collect();
+        let best = gr
+            .remaining
+            .iter()
+            .copied()
+            .max_by(|&a, &b| {
+                let sa = gr.g[a] + gr.logp[a] + self.sigma(gr, self.child_q(a).unwrap_or(-1.0));
+                let sb = gr.g[b] + gr.logp[b] + self.sigma(gr, self.child_q(b).unwrap_or(-1.0));
+                sa.partial_cmp(&sb).unwrap()
+            })
+            .unwrap();
+        Some((self.nodes[first + best].mv, policy, self.root_value()))
     }
 
     pub fn root_expanded(&self) -> bool {

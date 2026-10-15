@@ -99,6 +99,9 @@ def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--name", required=True)
     p.add_argument("--data", type=Path, nargs="+", required=True, help="shard roots containing train/ and val/")
+    p.add_argument("--selfplay", type=Path, nargs="*", default=[], help="self-play shard roots (chunk dirs)")
+    p.add_argument("--selfplay-frac", type=float, default=0.0, help="fraction of each batch from self-play")
+    p.add_argument("--init", type=Path, default=None, help="start from this checkpoint's EMA weights")
     p.add_argument("--arch", default="cnn")
     p.add_argument("--channels", type=int, default=256)
     p.add_argument("--blocks", type=int, default=15)
@@ -141,6 +144,11 @@ def main() -> None:
                             lr=args.lr, betas=(0.9, 0.98), fused=True)
 
     step = 0
+    if args.init is not None and not ckpt_path.exists():
+        init = torch.load(args.init, map_location=device)
+        model.load_state_dict(init["ema"])
+        ema.load_state_dict(init["ema"])
+        print(f"initialized from {args.init}")
     if ckpt_path.exists():
         ck = torch.load(ckpt_path, map_location=device)
         model.load_state_dict(ck["model"])
@@ -157,7 +165,9 @@ def main() -> None:
 
     targets = Targets(se.mirror_table(), cp_scale, args.policy_temp, args.soft_mult, args.value_blend, device)
     fwd = model if args.no_compile else torch.compile(model)
-    data = iter(loader(train_roots, args.batch, args.workers, seed=step + 1))
+    sp_batch = int(args.batch * args.selfplay_frac) if args.selfplay else 0
+    data = iter(loader(train_roots, args.batch - sp_batch, args.workers, seed=step + 1))
+    sp_data = iter(loader(args.selfplay, sp_batch, max(2, args.workers // 2), seed=step + 7)) if sp_batch else None
     log = (run_dir / "log.jsonl").open("a")
     t0, seen = time.time(), 0
     running: dict[str, float] = {}
@@ -165,6 +175,10 @@ def main() -> None:
     while step < args.steps:
         raw = {k: v.to(device, non_blocking=True) for k, v in next(data).items()}
         t = targets.build(raw, augment=True)
+        if sp_data is not None:
+            sp_raw = {k: v.to(device, non_blocking=True) for k, v in next(sp_data).items()}
+            sp = targets.build(sp_raw, augment=True)
+            t = {k: torch.cat([t[k], sp[k]]) for k in t}
         for g in opt.param_groups:
             g["lr"] = lr_at(step, args.steps, args.lr, args.warmup)
         with torch.autocast("cuda", dtype=torch.bfloat16):

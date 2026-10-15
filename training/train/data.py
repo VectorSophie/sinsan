@@ -16,11 +16,15 @@ FIELDS = ("boards", "scalars", "legal", "cand_actions", "cand_scores", "result",
 
 
 class ShardSet:
+    """Teacher shards, or self-play shards (which add pol_probs: an improved-policy target over
+    the 64 cand_actions)."""
+
     def __init__(self, roots: list[Path]) -> None:
         self.shards = []
-        for root in roots:
-            for d in sorted(p for p in Path(root).iterdir() if p.is_dir()):
-                self.shards.append({f: np.load(d / f"{f}.npy", mmap_mode="r") for f in FIELDS})
+        dirs = [d for root in roots for d in sorted(p for p in Path(root).iterdir() if p.is_dir() and not p.name.endswith(".tmp"))]
+        self.fields = FIELDS + (("pol_probs",) if dirs and (dirs[0] / "pol_probs.npy").exists() else ())
+        for d in dirs:
+            self.shards.append({f: np.load(d / f"{f}.npy", mmap_mode="r") for f in self.fields})
         if not self.shards:
             raise FileNotFoundError(f"no shards under {roots}")
         sizes = np.array([len(s["ply"]) for s in self.shards])
@@ -30,12 +34,12 @@ class ShardSet:
     def gather(self, idx: np.ndarray) -> dict[str, np.ndarray]:
         idx = np.sort(idx)
         shard_of = np.searchsorted(self.offsets, idx, side="right") - 1
-        parts: dict[str, list[np.ndarray]] = {f: [] for f in FIELDS}
+        parts: dict[str, list[np.ndarray]] = {f: [] for f in self.fields}
         parts["opp_action"] = []
         for s in np.unique(shard_of):
             rows = idx[shard_of == s] - self.offsets[s]
             sh = self.shards[s]
-            for f in FIELDS:
+            for f in self.fields:
                 parts[f].append(np.asarray(sh[f][rows]))
             # Opponent's reply target: the teacher's best move in the next position of the same game.
             nxt = np.minimum(rows + 1, len(sh["ply"]) - 1)
@@ -111,9 +115,18 @@ class Targets:
             mopp = torch.where(opp >= 0, self.mirror[opp.clamp(min=0)], opp)
             opp = torch.where(flip, mopp, opp)
 
-        scores = batch["cand_scores"].float()
-        valid = cand >= 0
         b = cand.shape[0]
+        selfplay = "pol_probs" in batch
+        if selfplay:
+            probs = batch["pol_probs"].float().masked_fill(cand < 0, 0.0)
+            policy = torch.zeros(b, ACTIONS, device=cand.device).scatter_add_(1, cand.clamp(min=0), probs)
+            sharp = probs.pow(1.0 / self.soft_mult)
+            soft = torch.zeros(b, ACTIONS, device=cand.device).scatter_add_(
+                1, cand.clamp(min=0), sharp / sharp.sum(1, keepdim=True).clamp(min=1e-12))
+            cand = cand[:, :8]
+        scores = batch["cand_scores"].float()
+        valid = (cand >= 0) & (not selfplay)
+
 
         def dist(temp: float) -> torch.Tensor:
             z = (scores / temp).masked_fill(~valid, -1e9)
@@ -121,14 +134,16 @@ class Targets:
             out = torch.zeros(b, ACTIONS, device=cand.device)
             return out.scatter_add_(1, cand.clamp(min=0), p)
 
-        policy = dist(self.policy_temp)
-        soft = dist(self.policy_temp * self.soft_mult)
+        if not selfplay:
+            policy = dist(self.policy_temp)
+            soft = dist(self.policy_temp * self.soft_mult)
         q_target = torch.sigmoid(scores / self.cp_scale)
 
         result = batch["result"].float()
         teacher_win = torch.sigmoid(scores[:, 0] / self.cp_scale)
         outcome_win = (result + 1) / 2
-        win = (1 - self.value_blend) * outcome_win + self.value_blend * teacher_win
+        blend = 0.0 if selfplay else self.value_blend  # self-play has no teacher evaluation
+        win = (1 - blend) * outcome_win + blend * teacher_win
         wdl = torch.stack([win, torch.zeros_like(win), 1 - win], 1)
 
         # HL-Gauss: probability mass of N(margin, sigma) in each bin.

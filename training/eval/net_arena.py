@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import threading
 import time
 from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
@@ -66,10 +67,25 @@ class NetPlayer:
         self.batch = se.SearchBatch(**search_params)
         self.leaves = leaves_per_tree
         self.active: set[int] = set()
+        self.synced: dict[int, int] = {}
 
     def start(self, slot: int, game: dict) -> None:
-        self.batch.set_root(slot, game["cho"], game["han"], game["g"].moves())
+        """Begins searching for `slot`'s side to move, reusing the slot's tree when it is only a
+        couple of moves behind the game (tree reuse across the game)."""
+        moves = game["g"].moves()
+        synced = self.synced.get(slot)
+        behind = moves[synced:] if synced is not None else None
+        if behind is not None and len(behind) <= 2 and self.batch.has_slot(slot):
+            for m in behind:
+                self.batch.advance(slot, m)
+        else:
+            self.batch.set_root(slot, game["cho"], game["han"], moves)
+        self.synced[slot] = len(moves)
         self.active.add(slot)
+
+    def forget(self, slot: int) -> None:
+        self.synced.pop(slot, None)
+        self.batch.clear_slot(slot)
 
     def step(self) -> dict[int, str]:
         """One batched search iteration over all active slots; returns finished slots' moves."""
@@ -89,34 +105,34 @@ class NetPlayer:
                 done[slot] = max(children, key=lambda c: c[3])[0]
             elif self.batch.root_visits(slot) >= target:
                 done[slot] = self.batch.best_move(slot)
-        for slot in done:
+        for slot, move in done.items():
             self.active.discard(slot)
-            self.batch.clear_slot(slot)
+            self.batch.advance(slot, move)
+            self.synced[slot] += 1
         return done
 
 
 class FsfPool:
+    """Fairy-Stockfish opponents: one engine per pool thread, created lazily."""
+
     def __init__(self, spec: str, threads: int) -> None:
         _, kind, nodes = spec.split(":")
-        self.nodes = int(nodes)
-        self.engines = [fairy_stockfish(nnue=kind == "nnue") for _ in range(threads)]
-        self.free = list(range(threads))
+        self.nodes, self.nnue = int(nodes), kind == "nnue"
+        self.local = threading.local()
         self.pool = ThreadPoolExecutor(threads)
 
     def submit(self, game: se.Game) -> Future:
-        eid = self.free.pop()
-        root, moves = game.root_fen(), game.moves()
-        legal = game.legal_moves()
+        root, moves, legal = game.root_fen(), game.moves(), game.legal_moves()
 
         def run() -> str:
-            try:
-                info = self.engines[eid].search(root, moves, f"nodes {self.nodes}")
-                if info.bestmove in legal:
-                    return info.bestmove
-                passes = [m for m in legal if m[: len(m) // 2] == m[len(m) // 2 :]]
-                return passes[0] if passes else legal[0]
-            finally:
-                self.free.append(eid)
+            engine = getattr(self.local, "engine", None)
+            if engine is None:
+                engine = self.local.engine = fairy_stockfish(nnue=self.nnue)
+            info = engine.search(root, moves, f"nodes {self.nodes}")
+            if info.bestmove in legal:
+                return info.bestmove
+            passes = [m for m in legal if m[: len(m) // 2] == m[len(m) // 2 :]]
+            return passes[0] if passes else legal[0]
 
         return self.pool.submit(run)
 
@@ -153,6 +169,9 @@ def play_match(a: str, b: str, pairs: int, device: torch.device, concurrency: in
 
     def finish(slot: int, result: tuple[str, str] | None) -> None:
         gm = games.pop(slot)
+        for p in players.values():
+            if isinstance(p, NetPlayer):
+                p.forget(slot)
         winner, reason = result if result else (None, "max-plies")
         a_side = "w" if gm["a_cho"] else "b"
         pts = 1.0 if winner == a_side else (0.5 if winner is None else 0.0)

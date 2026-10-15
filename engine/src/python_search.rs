@@ -46,6 +46,24 @@ impl PySearchBatch {
         Ok(())
     }
 
+    /// Plays a move in `slot`'s game, keeping the subtree below it (tree reuse).
+    fn advance(&mut self, slot: usize, uci: &str) -> PyResult<()> {
+        if !self.pending.is_empty() {
+            return Err(PyValueError::new_err("apply() the pending batch before advancing"));
+        }
+        let mv = parse_uci(uci).ok_or_else(|| PyValueError::new_err(format!("bad move {uci:?}")))?;
+        let tree = self.trees.get_mut(slot).and_then(|t| t.as_mut()).ok_or_else(|| PyValueError::new_err("empty slot"))?;
+        if !tree.game.legal_moves().contains(&mv) {
+            return Err(PyValueError::new_err(format!("illegal move {uci}")));
+        }
+        tree.advance(mv);
+        Ok(())
+    }
+
+    fn has_slot(&self, slot: usize) -> bool {
+        self.trees.get(slot).is_some_and(|t| t.is_some())
+    }
+
     fn clear_slot(&mut self, slot: usize) {
         if slot < self.trees.len() {
             self.trees[slot] = None;
@@ -162,6 +180,28 @@ impl PySearchBatch {
         if let Some(t) = self.trees[slot].as_mut() {
             t.add_root_noise(&noise, fraction);
         }
+    }
+
+    /// Starts Gumbel sequential halving at `slot`'s (expanded) root over the top `m` actions with
+    /// `budget` visits; `noise` holds one Gumbel(0,1) sample per root child (root_children order).
+    #[pyo3(signature = (slot, m, budget, noise, c_visit=50.0, c_scale=1.0))]
+    fn gumbel_start(&mut self, slot: usize, m: usize, budget: u32, noise: Vec<f32>, c_visit: f32, c_scale: f32) -> PyResult<()> {
+        let tree = self.trees.get_mut(slot).and_then(|t| t.as_mut()).ok_or_else(|| PyValueError::new_err("empty slot"))?;
+        if !tree.root_expanded() {
+            return Err(PyValueError::new_err("root not expanded yet"));
+        }
+        tree.gumbel_start(m, budget, &noise, c_visit, c_scale);
+        Ok(())
+    }
+
+    fn gumbel_done(&self, slot: usize) -> bool {
+        self.trees[slot].as_ref().is_none_or(|t| t.gumbel_done())
+    }
+
+    /// (chosen uci, [(uci, improved prob)], root value) after a Gumbel search.
+    fn gumbel_result(&self, slot: usize) -> Option<(String, Vec<(String, f32)>, f32)> {
+        let t = self.trees[slot].as_ref()?;
+        t.gumbel_result().map(|(m, pol, v)| (m.uci(), pol.into_iter().map(|(m, p)| (m.uci(), p)).collect(), v))
     }
 
     fn root_expanded(&self, slot: usize) -> bool {
