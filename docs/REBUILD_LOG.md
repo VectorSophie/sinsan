@@ -59,3 +59,49 @@ Observations:
   so the policy target uses softmax(cp / 30) (the original project used cp / 800).
 - 44% of MultiPV label rows came back with candidates out of score order (lines from different
   iterations); the generator now sorts them.
+- Final set: 49,955,861 positions from 283,970 full games (FSF NNUE, 100K nodes, MultiPV 8),
+  ~460 positions/s on 64 physical cores (~30 h).
+
+## P3: supervised training
+
+Architecture ablation on the first 9.4M positions, 14K steps x 2048 (~3 epochs), one GPU each:
+
+| Net | Params | Samples/s | Val top-1 | Val top-3 | WDL loss | Policy-only ladder | 800 visits ladder |
+|---|---|---|---|---|---|---|---|
+| CNN 256x15 | 17.4M | 12.6K | 37.7% | 67.0% | 0.362 | ~-330 | ~+1100 |
+| Transformer 384x10 | 34.9M | 5.9K | 41.2% | 70.8% | 0.356 | ~-40 | ~+1750 |
+
+The transformer also wins at equal wall time (39.3% top-1 at 35 minutes vs the CNN's final 37.7%).
+
+Main run `p3-tf512x12`: transformer d=512, 12 layers, 16 heads (60.4M params) on 35.6M positions,
+52K steps x 2048, ~6.5 h on one GPU. Final val: top-1 45.1%, top-3 74.9%, WDL loss 0.340, value
+accuracy 84.5%. At 800 visits against the ladder (200 games each):
+
+| Opponent | Score | Implied rating |
+|---|---|---|
+| FSF NNUE 64,000 | 91.5% | +2184 |
+| FSF NNUE 128,000 | 71.0% | +2197 |
+| FSF NNUE 256,000 | 58.5% | +2372 |
+| transformer 384x10 (both 400 visits) | 92.5% (+436) | |
+
+Ladder rating about +2250, above every FSF setting on the ladder.
+
+## P4: search parameters (first pass)
+
+384x10 net, 400 visits, 200 pairs against the default (Lc0) settings:
+
+| Change | Elo |
+|---|---|
+| cpuct 1.2 (default 1.745) | +28 [-4, +61] |
+| fpu 0.5 (default 0.33) | +9 |
+| policy temp 1.0 / 1.7 (default 1.36) | -9 / -24 |
+| margin utility 0.1 / 0.3 (default 0) | -7 / -23 |
+| cpuct 2.5 | -53 |
+| fpu 0.2 | -51 |
+
+Defaults kept; cpuct ~1.2 to be confirmed with a longer SPRT on the main net.
+
+## P5: self-play RL
+
+`rl1` started from `p3-tf512x12` on both GPUs: Gumbel self-play (200/32 visits, p_full 0.25)
+produces ~35-40 recorded positions/s per GPU (about 3.5 h per 500K-per-GPU iteration).
