@@ -48,6 +48,11 @@ class NetEvaluator:
         self.device = device
         self.infer = torch.compile(self.model.infer, dynamic=True) if compile_model else self.model.infer
 
+    def reload(self, path: str) -> None:
+        """Swaps in another checkpoint of the same architecture without recompiling."""
+        ck = torch.load(path, map_location=self.device)
+        self.model.load_state_dict(ck["ema"] if "ema" in ck else ck["model"])
+
     @torch.inference_mode()
     def __call__(self, batch: dict) -> tuple[bytes, bytes]:
         n = batch["count"]

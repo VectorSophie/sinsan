@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import signal
+import sys
 import time
 from pathlib import Path
 
@@ -94,6 +96,8 @@ class ChunkWriter:
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--net", required=True)
+    p.add_argument("--net-file", type=Path, default=None,
+                   help="text file naming the current net; re-read every minute and hot-swapped when it changes")
     p.add_argument("--run", required=True)
     p.add_argument("--positions", type=int, default=1_000_000, help="recorded (full-search) positions to produce")
     p.add_argument("--games", type=int, default=1024, help="concurrent games")
@@ -111,7 +115,7 @@ def main() -> None:
 
     out = OUT_ROOT / args.run
     out.mkdir(parents=True, exist_ok=True)
-    (out / "config.json").write_text(json.dumps(vars(args), indent=1))
+    (out / "config.json").write_text(json.dumps(vars(args), indent=1, default=str))
     rng = np.random.default_rng(args.seed + int(time.time()))
     evaluate = NetEvaluator(args.net, torch.device(args.device))
     batch = se.SearchBatch(policy_temp=1.0, fpu_reduction=0.0, fpu_reduction_root=0.0)
@@ -128,41 +132,52 @@ def main() -> None:
         games.append(new_game(slot))
 
     produced, finished, start, last_report = 0, 0, time.time(), 0.0
-    while produced < args.positions:
-        d = batch.collect(args.leaves)
-        if d["count"]:
-            batch.apply(*evaluate(d))
-        for slot, gm in enumerate(games):
-            if gm["phase"] == "expand" and batch.root_expanded(slot):
-                gm["full"] = rng.random() < args.p_full
-                k = len(batch.root_children(slot))
-                m, budget = (args.m_full, args.full) if gm["full"] else (args.m_fast, args.fast)
-                batch.gumbel_start(slot, m, budget, rng.gumbel(size=k).astype(np.float32).tolist())
-                gm["phase"] = "search"
-            elif gm["phase"] == "search" and batch.gumbel_done(slot):
-                move, policy, _ = batch.gumbel_result(slot)
-                g = gm["g"]
-                if gm["full"]:
-                    top = sorted(policy, key=lambda x: -x[1])[:POLICY_K]
-                    gm["records"][g.plies] = ([m for m, _ in top], [pr for _, pr in top])
-                if g.plies < args.sample_plies:
-                    moves, probs = zip(*policy)
-                    probs = np.asarray(probs, dtype=np.float64)
-                    move = moves[rng.choice(len(moves), p=probs / probs.sum())]
-                g.push(move)
-                batch.advance(slot, move)
-                result = g.result()
-                if result is not None or g.plies >= MAX_PLIES:
-                    produced += writer.add_game(gm["cho"], gm["han"], g.moves(), gm["records"], result, g.point_balance())
-                    finished += 1
-                    games[slot] = new_game(slot)
-                else:
-                    gm["phase"] = "expand"
-        if time.time() - last_report > 60:
-            last_report = time.time()
-            rate = produced / (last_report - start)
-            print(f"{produced:,} positions from {finished:,} games ({rate:,.0f}/s)", flush=True)
-    writer.flush()
+    current_net = args.net
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))  # stop cleanly: finished games are flushed below
+    try:
+        while produced < args.positions:
+            d = batch.collect(args.leaves)
+            if d["count"]:
+                batch.apply(*evaluate(d))
+            for slot, gm in enumerate(games):
+                if gm["phase"] == "expand" and batch.root_expanded(slot):
+                    gm["full"] = rng.random() < args.p_full
+                    k = len(batch.root_children(slot))
+                    m, budget = (args.m_full, args.full) if gm["full"] else (args.m_fast, args.fast)
+                    batch.gumbel_start(slot, m, budget, rng.gumbel(size=k).astype(np.float32).tolist())
+                    gm["phase"] = "search"
+                elif gm["phase"] == "search" and batch.gumbel_done(slot):
+                    move, policy, _ = batch.gumbel_result(slot)
+                    g = gm["g"]
+                    if gm["full"]:
+                        top = sorted(policy, key=lambda x: -x[1])[:POLICY_K]
+                        gm["records"][g.plies] = ([m for m, _ in top], [pr for _, pr in top])
+                    if g.plies < args.sample_plies:
+                        moves, probs = zip(*policy)
+                        probs = np.asarray(probs, dtype=np.float64)
+                        move = moves[rng.choice(len(moves), p=probs / probs.sum())]
+                    g.push(move)
+                    batch.advance(slot, move)
+                    result = g.result()
+                    if result is not None or g.plies >= MAX_PLIES:
+                        produced += writer.add_game(gm["cho"], gm["han"], g.moves(), gm["records"], result, g.point_balance())
+                        finished += 1
+                        games[slot] = new_game(slot)
+                    else:
+                        gm["phase"] = "expand"
+            if time.time() - last_report > 60:
+                last_report = time.time()
+                rate = produced / (last_report - start)
+                print(f"{produced:,} positions from {finished:,} games ({rate:,.0f}/s)", flush=True)
+                if args.net_file is not None and args.net_file.exists():
+                    wanted = args.net_file.read_text().strip()
+                    if wanted and wanted != current_net:
+                        # Trees in flight keep evaluations from the old net; they are replaced within a few moves.
+                        evaluate.reload(wanted)
+                        current_net = wanted
+                        print(f"switched to {wanted}", flush=True)
+    finally:
+        writer.flush()
     print(f"done: {produced:,} positions from {finished:,} games in {(time.time() - start) / 3600:.1f} h")
 
 
