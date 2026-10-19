@@ -58,7 +58,7 @@ RL_RUN = TRAINING_DIR / "runs" / "rl1"
 RATED_NETS = [
     ("abl-cnn256x15", "CNN 17M (9M positions)"),
     ("abl-tf384x10", "Transformer 35M (9M positions)"),
-    ("p3", "Transformer 60M, supervised (36M positions)"),
+    ("p3", "Transformer 60M, before RL"),
     ("rl1-it2", "After RL round 2"),
     ("rl1-it9", "After RL round 9"),
 ]
@@ -107,8 +107,11 @@ def progress() -> dict:
     rl = []
     state_file = RL_RUN / "state.json"
     if state_file.exists():
+        # Rounds 0-5 ran before the loop recorded gate lines in state.json (results kept in early_gates.json).
+        early = RL_RUN / "early_gates.json"
+        logged = {int(k): v for k, v in json.loads(early.read_text()).items()} if early.exists() else {}
         for h in json.loads(state_file.read_text())["history"]:
-            gate = h.get("gate") or ""
+            gate = h.get("gate") or logged.get(h["iteration"], "")
             m = re.search(r"\(([\d.]+)%\), Elo ([+-]?\d+) \[([+-]?\d+), ([+-]?\d+)\]", gate)
             rl.append({"iteration": h["iteration"], "promoted": h["promoted"],
                        "score": float(m.group(1)) if m else None, "elo": int(m.group(2)) if m else None,

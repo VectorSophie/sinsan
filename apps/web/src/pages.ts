@@ -173,7 +173,7 @@ function trainingDiagram(): string {
   const arrow = (x: number) => arrowLine(x + 2, 50, x + 24, 50);
   // Self-play cycle: four stages around a ring, arrows between them.
   const cx = 690;
-  const cy = 50;
+  const cy = 66;
   const r = 38;
   const stages = ['play', 'train', 'match', 'promote'];
   let ring = `<circle cx="${cx}" cy="${cy}" r="${r}" class="dg-loop"/>`;
@@ -190,11 +190,11 @@ function trainingDiagram(): string {
     ring += arrowLine(hx - Math.cos(a2 + Math.PI / 2) * 6, hy - Math.sin(a2 + Math.PI / 2) * 6, hx, hy, 'dg-arrow', 7);
   });
   ring += `<text x="${cx}" y="${cy + 5}" class="dg-title" text-anchor="middle">Self-play</text>`;
-  return `<svg viewBox="0 0 790 114" class="diagram" role="img" aria-label="Training pipeline">
+  return `<svg viewBox="0 0 790 136" class="diagram" role="img" aria-label="Training pipeline"><g transform="translate(0,16)">
     ${box(0, 150, 'Exact rules', '845K', 'positions, 0 mismatches')}${arrow(150)}
     ${box(178, 170, 'Teacher games', '50M', 'positions (FSF NNUE)')}${arrow(348)}
     ${box(376, 160, 'Supervised', '6.5 h', '52K steps, one GPU')}${arrow(536)}
-    ${ring}
+    </g>${ring}
   </svg>`;
 }
 
@@ -556,7 +556,7 @@ export async function renderProgress(container: HTMLElement): Promise<void> {
     <div class="chart rl-chart"></div>
     <p class="page-note">New network vs current best, 400 games at 128 visits: Elo with 95% interval. Filled = promoted.</p>
     <h3>How games end</h3>
-    <div class="chart">${barChart(endRows, { max: Math.max(10, ...endRows.map((r) => r.value)) * 1.1 })}</div>
+    <div class="chart">${barChart(endRows, { max: Math.max(10, ...endRows.map((r) => r.value)) * 1.1, width: 760 })}</div>
     <p class="page-note">${endTotal.toLocaleString()} games from the promotion matches.</p>
     <h3>Self-play now</h3>
     <pre class="page-pre">${data.selfplay.join('\n') || 'No self-play running.'}</pre>

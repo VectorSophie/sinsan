@@ -519,7 +519,7 @@ export function createAnalysisPanel(container: HTMLElement, callbacks: PanelCall
         s.appendChild(c);
       });
     }
-    graphLegend.textContent = `${who(viewer)}'s chances${fsfPts.length > 1 ? ' · dashed: Fairy-Stockfish' : ''}`;
+    graphLegend.textContent = `${who(viewer) === 'You' ? 'Your' : `${who(viewer)}'s`} chances${fsfPts.length > 1 ? ' · dashed: Fairy-Stockfish' : ''}`;
     graph.replaceChildren(s);
   }
 
@@ -534,7 +534,7 @@ export function createAnalysisPanel(container: HTMLElement, callbacks: PanelCall
         badge.title = p.expectedLabel && p.expected !== p.uci ? `Sinsan expected ${p.expectedLabel}` : 'The expected move';
         div.append(badge);
         if (p.loss !== undefined && p.loss >= 0.005) info.append(`−${(p.loss * 100).toFixed(0)}% `);
-        if (p.expectedLabel && p.expected !== p.uci) info.append(`best ${p.expectedLabel} `);
+        if (p.cls !== 'best' && p.expectedLabel && p.expected !== p.uci) info.append(`best ${p.expectedLabel} `);
       } else if (p.before !== undefined && p.loss === undefined) {
         div.append(el('span', 'ap-mv-pending', '…'));
       } else {
