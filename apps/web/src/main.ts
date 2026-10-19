@@ -8,6 +8,9 @@ import {
 } from '@sinsan/rules';
 import type { Formation, GameResult, Move, Position, Side } from '@sinsan/rules';
 import { createBoardView } from '@sinsan/ui';
+import { createAnalysisPanel, moveToUci } from './analysis-panel.ts';
+import { createEngineSettings } from './engine-settings.ts';
+import type { ServerAnalysis } from './analysis-panel.ts';
 import type { BoardView } from '@sinsan/ui';
 import { encodeMove } from '@sinsan/action-space';
 import { createModelWorkerClient, positionToPlanes } from '@sinsan/model-runtime';
@@ -31,10 +34,6 @@ const MODEL_VARIANTS = {
   v3: { modelName: 'sinsan-v3-56x7', label: 'V3' },
 } as const;
 type ModelVariant = keyof typeof MODEL_VARIANTS;
-
-// Full-size checkpoint served by training/play_server.py through the dev server's /api proxy
-// (searches on a GPU shared with self-play: roughly 0.3s / 1.3s / 5s / 12s per move).
-const SERVER_TIERS = [200, 800, 3200, 8000] as const;
 
 const FORMATIONS: Formation[] = ['masang-sangma', 'sangma-masang', 'masang-masang', 'sangma-sangma'];
 // 마상 (masang) = horse-then-elephant, 상마 (sangma) = elephant-then-horse - the two orders each
@@ -68,9 +67,7 @@ app.innerHTML = `
     </label>
     <label>AI
       <select id="ai-type">
-        ${SERVER_TIERS.map((visits) =>
-          `<option value="server:${visits}"${visits === 800 ? ' selected' : ''}>Sinsan 2026 (GPU server, ${visits} visits)</option>`,
-        ).join('')}
+        <option value="server" selected>Sinsan 2026 (GPU server - see settings)</option>
         <option value="random">Random</option>
         ${(Object.keys(MODEL_VARIANTS) as ModelVariant[])
           .map((v) => `<option value="model:${v}">Sinsan (${MODEL_VARIANTS[v].label}, policy only)</option>`)
@@ -85,14 +82,25 @@ app.innerHTML = `
       </select>
     </label>
   </div>
-  <div id="board"></div>
-  <div class="sinsan-controls">
-    <button id="pass-btn">Pass</button>
-    <button id="resign-btn">Resign</button>
-    <button id="new-game-btn">New Game</button>
+  <div class="sinsan-layout">
+    <div class="sinsan-play">
+      <div class="sinsan-board-row">
+        <div class="eval-bar" title="Your winning chances as Sinsan sees them"><div class="eval-bar-fill"></div><span class="eval-bar-num"></span></div>
+        <div id="board"></div>
+      </div>
+      <div class="sinsan-controls">
+        <button id="pass-btn">Pass</button>
+        <button id="hint-btn" title="Ask Sinsan for the best move in your position">Hint</button>
+        <button id="threat-btn" title="Show what Sinsan would do if you passed">Threat</button>
+        <button id="resign-btn">Resign</button>
+        <button id="new-game-btn">New Game</button>
+      </div>
+      <div class="sinsan-status" id="status"></div>
+      <div class="sinsan-status" id="ai-info"></div>
+      <div id="engine-settings"></div>
+    </div>
+    <aside id="analysis"></aside>
   </div>
-  <div class="sinsan-status" id="status"></div>
-  <div class="sinsan-status" id="ai-info"></div>
 `;
 
 const boardEl = document.querySelector<HTMLDivElement>('#board')!;
@@ -105,6 +113,19 @@ const passBtn = document.querySelector<HTMLButtonElement>('#pass-btn')!;
 const resignBtn = document.querySelector<HTMLButtonElement>('#resign-btn')!;
 const newGameBtn = document.querySelector<HTMLButtonElement>('#new-game-btn')!;
 const aiInfoEl = document.querySelector<HTMLDivElement>('#ai-info')!;
+const hintBtn = document.querySelector<HTMLButtonElement>('#hint-btn')!;
+const threatBtn = document.querySelector<HTMLButtonElement>('#threat-btn')!;
+const evalBarFill = document.querySelector<HTMLDivElement>('.eval-bar-fill')!;
+const evalBarNum = document.querySelector<HTMLSpanElement>('.eval-bar-num')!;
+const panel = createAnalysisPanel(document.querySelector<HTMLElement>('#analysis')!, {
+  onArrows: (arrows) => boardView?.setArrows(arrows),
+  onEval: (humanWin) => {
+    // Your share fills from your side of the board (the bottom).
+    evalBarFill.style.height = `${(humanWin ?? 0.5) * 100}%`;
+    evalBarNum.textContent = humanWin === null ? '' : `${Math.round(humanWin * 100)}`;
+  },
+});
+const engineSettings = createEngineSettings(document.querySelector<HTMLElement>('#engine-settings')!, () => updateStatus());
 
 let position: Position;
 let humanSide: Side = 'cho';
@@ -114,14 +135,8 @@ let aiTimer: ReturnType<typeof setTimeout> | undefined;
 /** Moves of the current game in Fairy-Stockfish notation (files a-i, ranks 1-10 from Cho's side). */
 let uciMoves: string[] = [];
 let gameSetup = { cho: 'masang-sangma' as Formation, han: 'masang-sangma' as Formation };
+let hintBusy = false;
 
-function squareToUci(square: number): string {
-  return String.fromCharCode(97 + (square % 9)) + String(10 - Math.floor(square / 9));
-}
-
-function moveToUci(move: Move): string {
-  return squareToUci(move.from) + squareToUci(move.to);
-}
 
 function resultText(result: GameResult): string {
   const winnerName = result.winner === 'cho' ? 'Cho' : result.winner === 'han' ? 'Han' : null;
@@ -157,16 +172,21 @@ function updateStatus(): void {
     gameOver = true;
     statusEl.textContent = resultText(result);
     passBtn.disabled = true;
+    hintBtn.disabled = true;
+    threatBtn.disabled = true;
+    panel.gameOver(result);
     return;
   }
   const turnName = position.sideToMove === 'cho' ? 'Cho' : 'Han';
   const checkNote = isCheck(position) ? ' - check!' : '';
   statusEl.textContent = `${turnName} to move${checkNote}`;
   passBtn.disabled = position.sideToMove !== humanSide || isCheck(position);
+  const canAsk = aiTypeSelect.value === 'server' && position.sideToMove === humanSide && !hintBusy;
+  hintBtn.disabled = !canAsk;
+  threatBtn.disabled = !canAsk || isCheck(position);
 }
 
 function afterMove(move: Move): void {
-  uciMoves.push(moveToUci(move));
   const isAiMove = move && position.sideToMove !== humanSide;
   boardView.sync(position, move, isAiMove ? AI_MOVE_MS : HUMAN_MOVE_MS);
   updateStatus();
@@ -259,31 +279,58 @@ function pickRandomMove(current: Position): Move {
   return nonPassMoves.length > 0 ? nonPassMoves[Math.floor(Math.random() * nonPassMoves.length)]! : legalMoves[0]!;
 }
 
-async function pickServerMove(current: Position, visits: number): Promise<Move> {
-  const legalMoves = generateLegalMoves(current);
-  const start = performance.now();
+async function serverSearch(moves: string[], fields: Record<string, number | string>): Promise<ServerAnalysis> {
   const response = await fetch('/api/move', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...gameSetup, moves: uciMoves, visits }),
+    body: JSON.stringify({ ...gameSetup, moves, ...fields }),
   });
-  const reply = await response.json();
+  const reply = (await response.json()) as ServerAnalysis & { error?: string };
   if (!response.ok) throw new Error(reply.error ?? `server error ${response.status}`);
-  const move = legalMoves.find((m) => moveToUci(m) === reply.move);
+  return reply;
+}
+
+async function pickServerMove(current: Position): Promise<Move> {
+  const legalMoves = generateLegalMoves(current);
+  const start = performance.now();
+  const reply = await serverSearch(uciMoves, engineSettings.requestFields());
+  const move = legalMoves.find((m) => moveToUci(m, current) === reply.move);
   if (!move) throw new Error(`server returned illegal move ${reply.move}`);
   const elapsedMs = performance.now() - start;
-  // cp is from the server's side to move (Sinsan's); show it from Sinsan's point of view.
-  aiInfoEl.textContent =
-    `Sinsan 2026 (${visits} visits): eval ${reply.cp > 0 ? '+' : ''}${(reply.cp / 100).toFixed(2)} for Sinsan, ` +
-    `${elapsedMs.toFixed(0)}ms - PV ${reply.pv.slice(0, 8).join(' ')}`;
+  panel.addAnalysis(uciMoves.length, current, reply);
+  aiInfoEl.textContent = `Sinsan 2026 (${engineSettings.summary()}): ${elapsedMs.toFixed(0)}ms`;
   return move;
+}
+
+async function showHint(kind: 'hint' | 'threat'): Promise<void> {
+  if (gameOver || position.sideToMove !== humanSide || hintBusy) return;
+  const pass = generateLegalMoves(position).find((m) => m.isPass);
+  if (kind === 'threat' && !pass) return;
+  hintBusy = true;
+  updateStatus();
+  panel.setWaiting(true, kind === 'hint' ? 'Searching your position…' : 'Searching what Sinsan threatens…');
+  try {
+    const fields = { ...engineSettings.requestFields(), temperature: 0 };
+    if (kind === 'hint') {
+      panel.showHint('hint', position, await serverSearch(uciMoves, fields));
+    } else {
+      const afterPass = applyMove(position, pass!);
+      panel.showHint('threat', afterPass, await serverSearch([...uciMoves, moveToUci(pass!, position)], fields));
+    }
+  } catch (error) {
+    aiInfoEl.textContent = `Server engine unavailable (${String(error)}); is training/play_server.py running?`;
+  } finally {
+    hintBusy = false;
+    panel.setWaiting(false);
+    updateStatus();
+  }
 }
 
 async function pickAiMove(current: Position): Promise<Move> {
   const parts = aiTypeSelect.value.split(':');
   if (parts[0] === 'server') {
     try {
-      return await pickServerMove(current, Number(parts[1]));
+      return await pickServerMove(current);
     } catch (error) {
       aiInfoEl.textContent = `Server engine unavailable (${String(error)}); is training/play_server.py running?`;
       throw error;
@@ -301,8 +348,10 @@ async function pickAiMove(current: Position): Promise<Move> {
 function maybeScheduleAiMove(): void {
   if (gameOver || position.sideToMove === humanSide) return;
   aiTimer = setTimeout(async () => {
-    const choice = await pickAiMove(position);
+    panel.setWaiting(true);
+    const choice = await pickAiMove(position).finally(() => panel.setWaiting(false));
     if (gameOver) return; // resigned/finished while the model was thinking
+    uciMoves.push(moveToUci(choice, position));
     position = applyMove(position, choice);
     afterMove(choice);
   }, AI_THINK_DELAY_MS);
@@ -310,6 +359,8 @@ function maybeScheduleAiMove(): void {
 
 function handleHumanMove(move: Move): void {
   if (gameOver || position.sideToMove !== humanSide) return;
+  panel.noteOpponentMove(uciMoves.length, position, move);
+  uciMoves.push(moveToUci(move, position));
   position = applyMove(position, move);
   afterMove(move);
 }
@@ -320,6 +371,7 @@ function newGame(): void {
   searchTrees.clear(); // a new game is a different game line - don't reuse old trees
   humanSide = humanSideSelect.value as Side;
   uciMoves = [];
+  panel.reset(humanSide === 'cho' ? 'han' : 'cho');
   gameSetup = { cho: setupChoSelect.value as Formation, han: setupHanSelect.value as Formation };
   position = createInitialPosition({
     setupCho: setupChoSelect.value as Formation,
@@ -349,9 +401,15 @@ resignBtn.addEventListener('click', () => {
   const winner: Side = position.sideToMove === 'cho' ? 'han' : 'cho';
   statusEl.textContent = resultText({ winner, kind: 'resignation' });
   passBtn.disabled = true;
+  hintBtn.disabled = true;
+  threatBtn.disabled = true;
+  panel.gameOver({ winner, kind: 'resignation' });
 });
 
 newGameBtn.addEventListener('click', newGame);
+hintBtn.addEventListener('click', () => void showHint('hint'));
+threatBtn.addEventListener('click', () => void showHint('threat'));
+aiTypeSelect.addEventListener('change', () => updateStatus());
 humanSideSelect.addEventListener('change', newGame);
 
 newGame();

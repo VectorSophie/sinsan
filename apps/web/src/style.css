@@ -32,7 +32,8 @@ body {
   gap: 1rem;
   padding: 2rem 1rem;
   width: 100%;
-  max-width: 720px;
+  max-width: 1240px;
+  box-sizing: border-box;
 }
 
 .sinsan-title {
@@ -77,4 +78,515 @@ body {
   min-height: 1.5rem;
   font-size: 0.95rem;
   text-align: center;
+}
+
+/* Board on the left, Sinsan's analysis on the right; stacked on narrow screens. */
+.sinsan-layout {
+  display: flex;
+  gap: 1.5rem;
+  align-items: flex-start;
+  justify-content: center;
+  width: 100%;
+}
+
+.sinsan-play {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+@media (max-width: 1000px) {
+  .sinsan-layout {
+    flex-direction: column;
+    align-items: center;
+  }
+}
+
+.analysis-panel {
+  --panel-muted: color-mix(in srgb, var(--sinsan-ink) 45%, transparent);
+  --panel-line: color-mix(in srgb, var(--sinsan-ink) 14%, transparent);
+  width: min(92vw, 440px);
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+  transition: opacity 0.2s;
+}
+
+.analysis-panel section {
+  border: 1px solid var(--panel-line);
+  border-radius: 0.5rem;
+  padding: 0.6rem 0.75rem;
+}
+
+.analysis-panel.ap-waiting .ap-eval {
+  animation: ap-think 1.2s ease-in-out infinite;
+}
+
+@keyframes ap-think {
+  50% { border-color: var(--sinsan-accent); }
+}
+
+.ap-title {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.ap-title-row,
+.ap-eval-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+
+.ap-sub {
+  color: var(--panel-muted);
+  font-size: 0.78rem;
+}
+
+.ap-eval-num {
+  font-size: 1.6rem;
+  font-weight: 700;
+}
+
+.ap-bar {
+  position: relative;
+  height: 0.6rem;
+  border-radius: 0.3rem;
+  background: var(--panel-line);
+  overflow: hidden;
+  margin-bottom: 0.35rem;
+}
+
+.ap-bar-fill {
+  height: 100%;
+  width: 50%;
+  background: var(--panel-muted);
+  transition: width 0.4s, background 0.4s;
+}
+
+/* Marker for the network's raw (pre-search) estimate. */
+.ap-bar-net {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 2px;
+  left: -10px;
+  background: var(--sinsan-ink);
+  transition: left 0.4s;
+}
+
+.ap-graph-svg {
+  display: block;
+  margin-top: 0.3rem;
+  height: auto;
+}
+
+.ap-mid {
+  stroke: var(--panel-line);
+  stroke-dasharray: 3 3;
+}
+
+.ap-area {
+  fill: color-mix(in srgb, var(--sinsan-accent) 18%, transparent);
+}
+
+.ap-curve {
+  fill: none;
+  stroke: var(--sinsan-accent);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.ap-pt {
+  fill: var(--sinsan-accent);
+  cursor: pointer;
+}
+
+.ap-pt-sel {
+  fill: var(--sinsan-ink);
+}
+
+.ap-cands {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.ap-cands th {
+  text-align: left;
+  font-weight: 500;
+  color: var(--panel-muted);
+  font-size: 0.75rem;
+  padding-bottom: 0.2rem;
+}
+
+.ap-cands td {
+  padding: 0.18rem 0.3rem 0.18rem 0;
+  border-top: 1px solid var(--panel-line);
+  cursor: default;
+}
+
+.ap-cands tr:hover td {
+  background: color-mix(in srgb, var(--sinsan-accent) 10%, transparent);
+}
+
+.ap-chosen td {
+  font-weight: 700;
+}
+
+.ap-move {
+  white-space: nowrap;
+}
+
+.ap-visits {
+  position: relative;
+  width: 45%;
+}
+
+.ap-vbar {
+  position: absolute;
+  left: 0;
+  top: 25%;
+  height: 50%;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--sinsan-accent) 35%, transparent);
+}
+
+.ap-visits span {
+  position: relative;
+  padding-left: 0.3rem;
+}
+
+.ap-prior {
+  color: var(--panel-muted);
+}
+
+.ap-tree {
+  overflow: auto;
+  max-height: 460px;
+}
+
+.ap-tree-svg {
+  display: block;
+}
+
+.ap-edge {
+  fill: none;
+  stroke: color-mix(in srgb, var(--sinsan-ink) 22%, transparent);
+}
+
+.ap-node {
+  cursor: pointer;
+}
+
+.ap-node circle {
+  stroke: var(--sinsan-bg);
+  stroke-width: 1.5;
+}
+
+.ap-node:hover circle {
+  stroke: var(--sinsan-ink);
+}
+
+.ap-node-label {
+  font-size: 11px;
+  font-weight: 600;
+  fill: var(--sinsan-ink);
+}
+
+.ap-opp .ap-node-label {
+  font-style: italic;
+}
+
+.ap-node-sub {
+  font-size: 9px;
+  fill: var(--panel-muted);
+}
+
+.ap-line {
+  margin-top: 0.4rem;
+  min-height: 2.2em;
+}
+
+.ap-detail {
+  font: inherit;
+  font-size: 0.75rem;
+  background: transparent;
+  color: var(--sinsan-ink);
+  border: 1px solid var(--panel-line);
+  border-radius: 0.3rem;
+}
+
+.ap-reply {
+  padding: 0.15rem 0;
+}
+
+.ap-reply-match {
+  color: hsl(120 40% 40%);
+}
+
+.ap-reply-surprise {
+  color: var(--sinsan-accent);
+}
+
+/* Vertical evaluation bar beside the board: your share fills from the bottom (your side). */
+.sinsan-board-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: stretch;
+}
+
+.eval-bar {
+  position: relative;
+  width: 14px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: #2b2b2b;
+  border: 1px solid color-mix(in srgb, var(--sinsan-ink) 25%, transparent);
+}
+
+.eval-bar-fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 50%;
+  background: #f1ede4;
+  transition: height 0.5s ease;
+}
+
+.eval-bar-num {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 3px;
+  font-size: 9px;
+  text-align: center;
+  color: #2b2b2b;
+  font-weight: 700;
+}
+
+.sinsan-layout .sinsan-board {
+  width: min(86vw, 78vh, 600px);
+}
+
+/* Settings card under the board. */
+.engine-settings {
+  width: 100%;
+  max-width: 620px;
+  font-size: 0.85rem;
+}
+
+.engine-settings details {
+  border: 1px solid color-mix(in srgb, var(--sinsan-ink) 14%, transparent);
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.75rem;
+}
+
+.engine-settings summary {
+  cursor: pointer;
+}
+
+.es-title {
+  font-weight: 600;
+}
+
+.es-summary {
+  color: color-mix(in srgb, var(--sinsan-ink) 55%, transparent);
+  margin-left: 0.4rem;
+}
+
+.es-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem 1rem;
+  margin-top: 0.7rem;
+}
+
+.es-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.es-grid output {
+  float: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--sinsan-accent);
+}
+
+.es-grid select,
+.es-grid button {
+  font: inherit;
+  padding: 0.3rem 0.5rem;
+  border-radius: 0.35rem;
+  border: 1px solid var(--sinsan-accent);
+  background: var(--sinsan-bg);
+  color: var(--sinsan-ink);
+}
+
+.es-grid input[type='range'] {
+  accent-color: var(--sinsan-accent);
+}
+
+.es-wide {
+  grid-column: 1 / -1;
+}
+
+.engine-settings .es-time,
+.engine-settings.es-time-mode .es-visits {
+  display: none;
+}
+
+.engine-settings.es-time-mode .es-time {
+  display: flex;
+}
+
+.es-help {
+  margin: 0;
+  font-size: 0.75rem;
+  color: color-mix(in srgb, var(--sinsan-ink) 55%, transparent);
+}
+
+/* Engine lines (MultiPV-style). */
+.ap-pvline {
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+  padding: 0.2rem 0;
+  border-top: 1px solid var(--panel-line);
+  cursor: default;
+}
+
+.ap-pvline:first-child {
+  border-top: none;
+}
+
+.ap-pvline:hover {
+  background: color-mix(in srgb, var(--sinsan-accent) 10%, transparent);
+}
+
+.ap-pv-eval {
+  flex: none;
+  min-width: 2.6rem;
+  text-align: center;
+  border-radius: 0.25rem;
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.75rem;
+  padding: 0.05rem 0.3rem;
+}
+
+.ap-pv-moves {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Hint / threat box. */
+.ap-hint-box {
+  border-color: var(--sinsan-accent) !important;
+}
+
+.ap-close {
+  font: inherit;
+  border: none;
+  background: transparent;
+  color: var(--sinsan-ink);
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+/* Move list with classifications. */
+.ap-moves {
+  max-height: 220px;
+  overflow: auto;
+}
+
+.ap-mv {
+  display: grid;
+  grid-template-columns: 2.2rem 3.2rem 3.2rem 1fr;
+  gap: 0.3rem;
+  align-items: baseline;
+  padding: 0.12rem 0.2rem;
+  border-radius: 0.25rem;
+}
+
+.ap-mv-num {
+  color: var(--panel-muted);
+}
+
+.ap-mv-who {
+  color: var(--panel-muted);
+  font-size: 0.75rem;
+}
+
+.ap-mv-label {
+  font-weight: 600;
+}
+
+.ap-mv-info {
+  color: var(--panel-muted);
+  font-size: 0.75rem;
+}
+
+.ap-mv-click {
+  cursor: pointer;
+}
+
+.ap-mv-click:hover,
+.ap-mv-sel {
+  background: color-mix(in srgb, var(--sinsan-accent) 12%, transparent);
+}
+
+.ap-mv-you .ap-cls {
+  grid-column: 4;
+}
+
+.ap-mv-you {
+  grid-template-columns: 2.2rem 3.2rem 3.2rem auto 1fr;
+}
+
+.ap-cls {
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.02rem 0.35rem;
+  border-radius: 0.25rem;
+  white-space: nowrap;
+  color: #fff;
+}
+
+.ap-cls-best { background: #2e8b57; }
+.ap-cls-excellent { background: #5aa469; }
+.ap-cls-good { background: #8aa66b; }
+.ap-cls-inaccuracy { background: #d8a530; }
+.ap-cls-mistake { background: #e07b2a; }
+.ap-cls-blunder { background: #c8372d; }
+
+.ap-mark {
+  stroke-width: 1.5;
+  stroke-dasharray: 2 2;
+}
+
+.ap-mark-inaccuracy { stroke: #d8a530; }
+.ap-mark-mistake { stroke: #e07b2a; }
+.ap-mark-blunder { stroke: #c8372d; }
+
+.ap-review-head {
+  font-weight: 600;
+  margin: 0.3rem 0;
+}
+
+.ap-review-grid {
+  display: grid;
+  grid-template-columns: auto auto auto auto;
+  gap: 0.3rem 0.6rem;
+  justify-content: start;
+  align-items: center;
+  margin-bottom: 0.4rem;
 }

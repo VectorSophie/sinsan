@@ -3,7 +3,7 @@ import type { Config } from 'chessgroundx/config.js';
 import type { Dests, Key } from 'chessgroundx/types.js';
 import { Notation } from 'chessgroundx/types.js';
 import { generateLegalMoves, isCheck, positionKey } from '@sinsan/rules';
-import type { Move, Position, Side } from '@sinsan/rules';
+import type { Move, Position, Side, Square } from '@sinsan/rules';
 import { squareToKey, keyToSquare } from './coords.ts';
 
 export interface BoardViewOptions {
@@ -12,8 +12,18 @@ export interface BoardViewOptions {
   readonly animationDurationMs?: number;
 }
 
+/** An arrow drawn over the board (analysis display only - never affects the game). */
+export interface BoardArrow {
+  readonly from: Square;
+  readonly to: Square;
+  /** chessground brush name: green, red, blue, yellow, paleBlue, paleGreen, paleRed, paleGrey. */
+  readonly brush: string;
+  readonly lineWidth?: number;
+}
+
 export interface BoardView {
   sync(position: Position, lastMove?: Move, animationDurationMs?: number): void;
+  setArrows(arrows: readonly BoardArrow[]): void;
   destroy(): void;
 }
 
@@ -86,8 +96,20 @@ export function createBoardView(container: HTMLElement, position: Position, opti
     });
   }
 
+  function setArrows(arrows: readonly BoardArrow[]): void {
+    api.setAutoShapes(
+      arrows.map((a) => ({
+        orig: squareToKey(a.from),
+        dest: squareToKey(a.to),
+        brush: a.brush,
+        modifiers: a.lineWidth !== undefined ? { lineWidth: a.lineWidth } : undefined,
+      })),
+    );
+  }
+
   return {
     sync,
+    setArrows,
     destroy: () => api.destroy(),
   };
 }

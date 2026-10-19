@@ -194,6 +194,24 @@ impl PySearchBatch {
             .map_or(Vec::new(), |t| t.root_children().into_iter().map(|(m, n, q, p)| (m.uci(), n, q, p)).collect())
     }
 
+    /// Network value of the root before search (side to move), if evaluated.
+    fn root_net_value(&self, slot: usize) -> Option<f32> {
+        self.trees[slot].as_ref().and_then(|t| t.root_net_value())
+    }
+
+    /// (max depth, visit-weighted mean depth) of the searched tree.
+    fn depth_stats(&self, slot: usize) -> (u32, f32) {
+        self.trees[slot].as_ref().map_or((0, 0.0), |t| t.depth_stats())
+    }
+
+    /// [(parent row, depth, uci, visits, q, prior, terminal)] - see Tree::dump.
+    #[pyo3(signature = (slot, max_depth=4, top_k=4, min_visits=1))]
+    fn dump_tree(&self, slot: usize, max_depth: usize, top_k: usize, min_visits: u32) -> Vec<(i32, u32, String, u32, f32, f32, bool)> {
+        self.trees[slot].as_ref().map_or(Vec::new(), |t| {
+            t.dump(max_depth, top_k, min_visits).into_iter().map(|(p, d, m, n, q, pr, term)| (p, d, m.uci(), n, q, pr, term)).collect()
+        })
+    }
+
     fn best_move(&self, slot: usize) -> Option<String> {
         self.trees[slot].as_ref().and_then(|t| t.best_move()).map(|m| m.uci())
     }

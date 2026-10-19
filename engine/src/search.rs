@@ -452,6 +452,67 @@ impl Tree {
         pv
     }
 
+    /// Network evaluation of the root position for its side to move, before any search.
+    pub fn root_net_value(&self) -> Option<f32> {
+        self.root_net_value
+    }
+
+    /// (deepest visited ply, visit-weighted mean ply of visited nodes) below the root: the MCTS
+    /// counterparts of an alpha-beta engine's seldepth and depth.
+    pub fn depth_stats(&self) -> (u32, f32) {
+        let (mut max_d, mut weighted, mut total) = (0u32, 0f64, 0f64);
+        let mut stack = vec![(0usize, 0u32)];
+        while let Some((idx, d)) = stack.pop() {
+            let node = &self.nodes[idx];
+            if d > 0 && node.n > 0 {
+                max_d = max_d.max(d);
+                weighted += node.n as f64 * d as f64;
+                total += node.n as f64;
+            }
+            if node.state == EXPANDED {
+                let first = node.first_child as usize;
+                for i in first..first + node.num_children as usize {
+                    if self.nodes[i].n > 0 {
+                        stack.push((i, d + 1));
+                    }
+                }
+            }
+        }
+        (max_d, if total > 0.0 { (weighted / total) as f32 } else { 0.0 })
+    }
+
+    /// The searched part of the tree for display: depth-first, at each node the `top_k` most-visited
+    /// children with at least `min_visits` visits, down to `max_depth` plies. Rows are
+    /// (parent row or -1, depth, move, visits, Q for the side that played the move, prior, terminal).
+    pub fn dump(&self, max_depth: usize, top_k: usize, min_visits: u32) -> Vec<(i32, u32, Move, u32, f32, f32, bool)> {
+        let mut rows = Vec::new();
+        let mut stack = vec![(0usize, -1i32, 0u32)];
+        while let Some((idx, parent, depth)) = stack.pop() {
+            let node = &self.nodes[idx];
+            let row = if idx == 0 {
+                -1
+            } else {
+                let q = if node.n > 0 { node.w / node.n as f32 } else { f32::NAN };
+                rows.push((parent, depth, node.mv, node.n, q, node.prior, node.state == TERMINAL));
+                rows.len() as i32 - 1
+            };
+            if node.state != EXPANDED || depth as usize >= max_depth {
+                continue;
+            }
+            let first = node.first_child as usize;
+            let mut kids: Vec<usize> = (first..first + node.num_children as usize)
+                .filter(|&i| self.nodes[i].n >= min_visits.max(1))
+                .collect();
+            kids.sort_by(|&a, &b| self.nodes[b].n.cmp(&self.nodes[a].n));
+            kids.truncate(top_k);
+            // Push in reverse so the most-visited child is emitted first.
+            for &k in kids.iter().rev() {
+                stack.push((k, row, depth + 1));
+            }
+        }
+        rows
+    }
+
     pub fn root_expanded(&self) -> bool {
         self.nodes[0].state == EXPANDED
     }
