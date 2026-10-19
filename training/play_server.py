@@ -71,9 +71,11 @@ def match_rating(f: Path, anchors: dict[str, float]) -> dict | None:
     opp = games[0]["b"]
     # winner is a colour: "w" = Cho, "b" = Han; a_cho says which colour player a had.
     score = sum(1.0 if (g["winner"] == "w") == g["a_cho"] else 0.0 for g in games) / len(games)
-    score = min(max(score, 0.5 / len(games)), 1 - 0.5 / len(games))
-    return {"opponent": opp, "games": len(games), "score": score,
-            "elo": round(anchors[opp] - 400 * math.log10(1 / score - 1))}
+    n = len(games)
+    elo = lambda sc: anchors[opp] - 400 * math.log10(1 / min(max(sc, 0.5 / n), 1 - 0.5 / n) - 1)  # noqa: E731
+    half = 1.96 * math.sqrt(max(score * (1 - score), 0.25 / n) / n)  # 95% interval on the score
+    return {"opponent": opp, "games": n, "score": score, "elo": round(elo(score)),
+            "low": round(elo(score - half)), "high": round(elo(score + half))}
 
 
 def progress() -> dict:
@@ -129,14 +131,17 @@ def progress() -> dict:
         # A near-0% or near-100% match only bounds the rating; use real estimates when there are any.
         real = [e for e in est if 0.02 < e["score"] < 0.98]
         if real:
-            presets[pid] = {"elo": round(sum(e["elo"] for e in real) / len(real)), "bound": ""}
+            presets[pid] = {"elo": round(sum(e["elo"] for e in real) / len(real)), "bound": "",
+                            "low": round(sum(e["low"] for e in real) / len(real)),
+                            "high": round(sum(e["high"] for e in real) / len(real))}
         elif est:
             lows = [e for e in est if e["score"] <= 0.02]
-            presets[pid] = ({"elo": min(e["elo"] for e in lows), "bound": "≤"} if lows
-                            else {"elo": max(e["elo"] for e in est), "bound": "≥"})
-    rl_nets = [n for n in nets if n["id"].startswith("rl1-")]
+            presets[pid] = ({"elo": min(e["high"] for e in lows), "bound": "≤"} if lows
+                            else {"elo": max(e["low"] for e in est), "bound": "≥"})
+    rl_nets = [n for n in nets if n["id"].startswith("rl1-") and len(n["matches"]) == 1]
     if rl_nets:
-        presets["full"] = {"elo": rl_nets[-1]["elo"], "bound": ""}
+        m = rl_nets[-1]["matches"][0]
+        presets["full"] = {"elo": m["elo"], "bound": "", "low": m["low"], "high": m["high"]}
     return {"ladder": sorted(ladder, key=lambda x: x["elo"]), "nets": nets, "rl": rl, "selfplay": selfplay,
             "curves": curves, "endings": endings, "presets": presets}
 

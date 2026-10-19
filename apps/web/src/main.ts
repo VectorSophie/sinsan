@@ -32,13 +32,13 @@ const SIDES: Side[] = ['cho', 'han'];
 type PlayerId = string;
 
 const FSF_LEVELS: [string, string][] = [
-  ['fsf:nnue:1000', 'Fairy-Stockfish NNUE 1K nodes (ladder 0)'],
-  ['fsf:nnue:4000', 'Fairy-Stockfish NNUE 4K (+574)'],
-  ['fsf:nnue:16000', 'Fairy-Stockfish NNUE 16K (+1198)'],
-  ['fsf:nnue:64000', 'Fairy-Stockfish NNUE 64K (+1771)'],
-  ['fsf:nnue:256000', 'Fairy-Stockfish NNUE 256K (+2312)'],
+  ['fsf:nnue:1000', 'Fairy-Stockfish NNUE 1K nodes (0)'],
+  ['fsf:nnue:4000', 'Fairy-Stockfish NNUE 4K (574)'],
+  ['fsf:nnue:16000', 'Fairy-Stockfish NNUE 16K (1198)'],
+  ['fsf:nnue:64000', 'Fairy-Stockfish NNUE 64K (1771)'],
+  ['fsf:nnue:256000', 'Fairy-Stockfish NNUE 256K (2312)'],
   ['fsf:nnue:1000000', 'Fairy-Stockfish NNUE 1M nodes'],
-  ['fsf:classical:16000', 'Fairy-Stockfish classical 16K (+466)'],
+  ['fsf:classical:16000', 'Fairy-Stockfish classical 16K (466)'],
 ];
 
 const PLAYER_OPTIONS: [PlayerId, string][] = [
@@ -390,14 +390,18 @@ newGame();
 async function labelPresetRatings(): Promise<void> {
   try {
     const r = await fetch('/api/progress');
-    const data = (await r.json()) as { presets?: Record<string, { elo: number; bound: string }> };
+    const data = (await r.json()) as { presets?: Record<string, { elo: number; bound: string; low?: number; high?: number }> };
     for (const select of Object.values(playerSelects)) {
       for (const opt of Array.from(select.options)) {
         const id = opt.value.startsWith('sinsan:') ? opt.value.slice('sinsan:'.length) : null;
         if (!id || id === 'custom') continue;
         const rating = data.presets?.[id];
         const base = opt.textContent!.replace(/ \(.*\)$/, '');
-        opt.textContent = rating ? `${base} (${rating.bound}${rating.elo > 0 ? '+' : ''}${rating.elo})` : `${base} (not rated yet)`;
+        // Ladder Elo as the 95% range of its match, or a bound when the match was one-sided.
+        const text = !rating ? 'not rated yet'
+          : rating.bound ? `${rating.bound}${rating.elo}`
+          : rating.low !== undefined && rating.high !== undefined ? `${rating.low}~${rating.high}` : String(rating.elo);
+        opt.textContent = `${base} (${text})`;
       }
     }
   } catch {
