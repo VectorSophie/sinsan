@@ -4,6 +4,12 @@ GET  /api/nets  -> [{"id", "label", "path"}]: the networks a request may choose 
 POST /api/fsf   {"cho", "han", "moves", "nodes", "nnue": bool}
              -> {"move", "cp" (side to move), "mate", "depth", "nodes", "pv", "ms"}: Fairy-Stockfish,
                 single thread and a fixed node budget, as on the strength ladder.
+POST /api/inspect {"cho", "han", "moves", "net"}
+             -> {"side", "priors": [[uci, p]], "wdl": [win, draw, loss], "margin": [121 bins over -60..60],
+                 "attention": [layer][from square][to square] (0-255, each row scaled to its maximum)}:
+                the raw network on one position, for the web app's "inside the network" view. Squares
+                are real board squares (row * 9 + col from Han's back rank), not the network's
+                side-to-move orientation.
 GET  /api/progress -> {"ladder": [...], "nets": [...], "rl": [...], "selfplay": [...]}: Fairy-Stockfish
                  ladder anchors, Sinsan nets rated from their saved matches against it, the RL loop's
                  gate history and the self-play workers' latest progress lines.
@@ -37,6 +43,9 @@ from pathlib import Path
 
 import sinsan_engine as se
 import torch
+
+import numpy as np
+import torch.nn.functional as F
 
 from eval.net_arena import NetEvaluator
 from eval.uci import fairy_stockfish
@@ -230,6 +239,50 @@ def main() -> None:
                      for par, d, m, n, q, pr, term in b.dump_tree(0, 6, 4, max(2, total // 300))],
         }
 
+    @torch.no_grad()
+    def inspect(req: dict) -> dict:
+        choices = {n["id"]: n["path"] for n in nets()}
+        net_id = req.get("net", "best") if req.get("net") in choices else "best"
+        ev = evaluator(net_id, choices[net_id])
+        moves = [str(m) for m in req["moves"]]
+        enc = se.encode_game(req["cho"], req["han"], moves, [[] for _ in range(len(moves) + 1)])
+        n = len(moves) + 1
+        boards = torch.from_numpy(np.frombuffer(enc["boards"], np.uint8).reshape(n, 4, 90)[-1:].copy()).to(device)
+        scalars = torch.from_numpy(np.frombuffer(enc["scalars"], np.float32).reshape(n, -1)[-1:].copy()).to(device)
+        han = int(np.frombuffer(enc["stm"], np.uint8)[-1]) == 1
+        model = ev.model
+        captured: list[torch.Tensor] = []
+        hooks = [layer.attn.register_forward_pre_hook(lambda _m, args: captured.append(args[0]))
+                 for layer in getattr(model, "layers", [])]
+        try:
+            out = model(boards, scalars)
+        finally:
+            for h in hooks:
+                h.remove()
+        attention = []
+        order = torch.arange(89, -1, -1, device=device) if han else torch.arange(90, device=device)
+        for layer, x in zip(model.layers, captured):
+            a = layer.attn
+            b_, n_, d_ = x.shape
+            q, k, _ = a.qkv(x).view(b_, n_, 3, a.heads, a.dh).permute(2, 0, 3, 1, 4)
+            sg = F.mish(a.sg_mid(a.sg_compress(x).reshape(b_, -1)))
+            sg = F.mish(a.sg_heads(sg)).view(b_, a.heads, a.sg_dim)
+            bias = a.sg_proj(sg).view(b_, a.heads, n_, n_) + a.static_bias
+            w = torch.softmax(q @ k.transpose(-1, -2) / math.sqrt(a.dh) + bias, -1).mean(1)[0]  # [90, 90], heads averaged
+            w = w[order][:, order]  # network tokens -> real board squares
+            w = w / w.amax(1, keepdim=True).clamp(min=1e-9)
+            attention.append((w * 255).round().to(torch.uint8).cpu().tolist())
+        # Raw priors (policy temperature 1) through the search's own move mapping.
+        b = se.SearchBatch(policy_temp=1.0)
+        b.set_root(0, req["cho"], req["han"], moves)
+        d = b.collect(1)
+        if d["count"]:
+            b.apply(*ev(d))
+        priors = sorted(((m, pr) for m, _, _, pr in b.root_children(0)), key=lambda x: -x[1])
+        return {"side": "han" if han else "cho", "priors": priors,
+                "wdl": torch.softmax(out["wdl"].float(), 1)[0].tolist(),
+                "margin": torch.softmax(out["margin"].float(), 1)[0].tolist(), "attention": attention}
+
     fsf_engines: dict[bool, object] = {}
 
     def fsf_move(req: dict) -> dict:
@@ -274,7 +327,7 @@ def main() -> None:
                 self.reply(404, {"error": "not found"})
 
         def do_POST(self) -> None:
-            handlers = {"/api/move": search, "/api/fsf": fsf_move}
+            handlers = {"/api/move": search, "/api/fsf": fsf_move, "/api/inspect": inspect}
             if self.path not in handlers:
                 self.reply(404, {"error": "not found"})
                 return

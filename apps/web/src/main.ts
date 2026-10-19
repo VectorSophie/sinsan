@@ -11,6 +11,7 @@ import { createBoardView } from '@sinsan/ui';
 import { createAnalysisPanel, moveToUci } from './analysis-panel.ts';
 import { createEngineSettings, PRESETS, presetSettings, requestFieldsFor } from './engine-settings.ts';
 import { renderAbout, renderProgress, renderRules } from './pages.ts';
+import { mountNetworkViz } from './network-viz.ts';
 import type { FsfInfo, ServerAnalysis } from './analysis-panel.ts';
 import type { BoardView } from '@sinsan/ui';
 
@@ -421,7 +422,10 @@ function showView(): void {
   for (const v of VIEWS) document.querySelector<HTMLElement>(`#view-${v}`)!.hidden = v !== view;
   document.querySelectorAll<HTMLAnchorElement>('.site-nav a').forEach((a) => a.classList.toggle('active', a.dataset['view'] === view));
   const el = document.querySelector<HTMLElement>(`#view-${view}`)!;
-  if (view === 'about' && !rendered.has(view)) renderAbout(el);
+  if (view === 'about' && !rendered.has(view)) {
+    renderAbout(el);
+    mountNetworkViz(el.querySelector<HTMLElement>('#network-viz')!, () => ({ ...gameSetup, moves: [...uciMoves] }));
+  }
   if (view === 'rules' && !rendered.has(view)) renderRules(el);
   if (view === 'progress') void renderProgress(el); // live data: refresh on every visit
   rendered.add(view);

@@ -5,6 +5,19 @@ const PIECE_IMG = (side: 'blue' | 'red', piece: string) => `/assets/pieces/jangg
 
 // ---------- small SVG helpers (markup strings for static diagrams) ----------
 
+/** A straight arrow with a drawn (not marker) head, ending exactly at (x2, y2). */
+function arrowLine(x1: number, y1: number, x2: number, y2: number, cls = 'dg-arrow', head = 9): string {
+  const len = Math.hypot(x2 - x1, y2 - y1);
+  const ux = (x2 - x1) / len;
+  const uy = (y2 - y1) / len;
+  const bx = x2 - ux * head;
+  const by = y2 - uy * head;
+  const px = -uy * head * 0.55;
+  const py = ux * head * 0.55;
+  return `<line x1="${x1}" y1="${y1}" x2="${bx}" y2="${by}" class="${cls}"/>` +
+    `<polygon points="${x2},${y2} ${bx + px},${by + py} ${bx - px},${by - py}" class="${cls}-head"/>`;
+}
+
 interface MiniBoard {
   cols: number;
   rows: number;
@@ -38,7 +51,7 @@ function miniBoard(b: MiniBoard): string {
     parts.push(`<polyline points="${path.map(([c, r]) => `${X(c)},${Y(r)}`).join(' ')}" class="mb-path"/>`);
   }
   for (const [c, r] of b.dots ?? []) parts.push(`<circle cx="${X(c)}" cy="${Y(r)}" r="${cell * 0.16}" class="mb-dot"/>`);
-  const ps = cell * 0.86;
+  const ps = cell * 1.04;
   for (const p of b.pieces ?? []) {
     parts.push(`<image href="${p.img}" x="${X(p.c) - ps / 2}" y="${Y(p.r) - ps / 2}" width="${ps}" height="${ps}"${p.faded ? ' opacity="0.55"' : ''}/>`);
   }
@@ -78,18 +91,16 @@ function pipelineDiagram(): string {
   const box = (x: number, title: string, sub: string, icon: string) =>
     `<g transform="translate(${x},0)"><rect x="0" y="0" width="170" height="150" rx="10" class="dg-box"/>${icon}` +
     `<text x="85" y="112" class="dg-title" text-anchor="middle">${title}</text><text x="85" y="132" class="dg-sub" text-anchor="middle">${sub}</text></g>`;
-  const arrow = (x: number) => `<path d="M${x},75 l22,0 m-7,-6 l7,6 l-7,6" class="dg-arrow"/>`;
+  const arrow = (x: number) => arrowLine(x + 2, 75, x + 24, 75);
   let grid = '';
   for (let i = 0; i < 5; i++) grid += `<line x1="${55 + i * 15}" y1="22" x2="${55 + i * 15}" y2="82" class="dg-grid"/><line x1="55" y1="${22 + i * 15}" x2="115" y2="${22 + i * 15}" class="dg-grid"/>`;
   grid += `<circle cx="70" cy="52" r="6" class="dg-cho"/><circle cx="100" cy="37" r="6" class="dg-han"/><circle cx="85" cy="67" r="6" class="dg-cho"/>`;
   let layers = '';
-  for (let i = 0; i < 5; i++) layers += `<rect x="${48 + i * 4}" y="${20 + i * 12}" width="66" height="10" rx="3" class="dg-layer" opacity="${0.5 + i * 0.1}"/>`;
+  for (let i = 0; i < 6; i++) layers += `<rect x="${44 + i * 14}" y="24" width="10" height="58" rx="3" class="dg-layer"/>`;
   let tree = `<circle cx="85" cy="24" r="6" class="dg-node-hot"/>`;
-  const kids = [[55, 52], [85, 52], [115, 52]];
-  for (const [kx, ky] of kids) tree += `<line x1="85" y1="24" x2="${kx}" y2="${ky}" class="dg-edge${kx === 85 ? ' dg-edge-hot' : ''}"/><circle cx="${kx}" cy="${ky}" r="5" class="${kx === 85 ? 'dg-node-hot' : 'dg-node'}"/>`;
-  for (const [kx, ky] of [[72, 80], [98, 80]]) tree += `<line x1="85" y1="52" x2="${kx}" y2="${ky}" class="dg-edge${kx === 72 ? ' dg-edge-hot' : ''}"/><circle cx="${kx}" cy="${ky}" r="4" class="${kx === 72 ? 'dg-node-hot' : 'dg-node'}"/>`;
-  const move = `<line x1="55" y1="70" x2="112" y2="30" class="dg-move"/><path d="M112,30 l-12,2 m12,-2 l-4,11" class="dg-move"/>` +
-    `<circle cx="55" cy="70" r="7" class="dg-cho"/>`;
+  for (const kx of [55, 85, 115]) tree += `<line x1="85" y1="24" x2="${kx}" y2="52" class="dg-edge${kx === 85 ? ' dg-edge-hot' : ''}"/><circle cx="${kx}" cy="52" r="5" class="${kx === 85 ? 'dg-node-hot' : 'dg-node'}"/>`;
+  for (const kx of [72, 98]) tree += `<line x1="85" y1="52" x2="${kx}" y2="80" class="dg-edge${kx === 72 ? ' dg-edge-hot' : ''}"/><circle cx="${kx}" cy="80" r="4" class="${kx === 72 ? 'dg-node-hot' : 'dg-node'}"/>`;
+  const move = `<circle cx="58" cy="72" r="7" class="dg-cho"/>${arrowLine(64, 67, 112, 30, 'dg-move', 12)}`;
   return `<svg viewBox="0 0 776 150" class="diagram" role="img" aria-label="Position to network to search to move">
     ${box(0, 'Position', 'board + last 3 moves', grid)}${arrow(176)}
     ${box(202, 'Network', '60M transformer', layers)}${arrow(378)}
@@ -100,72 +111,90 @@ function pipelineDiagram(): string {
 
 function networkDiagram(): string {
   let tokens = '';
-  for (let r = 0; r < 10; r++) for (let c = 0; c < 9; c++) tokens += `<circle cx="${14 + c * 11}" cy="${30 + r * 11}" r="3.2" class="dg-token"/>`;
+  for (let r = 0; r < 10; r++) for (let c = 0; c < 9; c++) tokens += `<circle cx="${20 + c * 11}" cy="${38 + r * 11}" r="3.2" class="dg-token"/>`;
   let layers = '';
-  for (let i = 0; i < 12; i++) layers += `<rect x="${160 + i * 15}" y="34" width="11" height="104" rx="3" class="dg-layer"/>`;
+  for (let i = 0; i < 12; i++) layers += `<rect x="${178 + i * 15}" y="40" width="11" height="96" rx="3" class="dg-layer"/>`;
   const head = (y: number, title: string, chart: string) =>
-    `<g transform="translate(420,${y})"><rect x="0" y="0" width="300" height="46" rx="8" class="dg-box"/>` +
-    `<text x="12" y="20" class="dg-title2">${title}</text>${chart}</g>`;
-  const policyBars = [0.42, 0.24, 0.12, 0.08, 0.05, 0.04, 0.03, 0.02].map((p, i) => `<rect x="${160 + i * 15}" y="${38 - p * 60}" width="11" height="${p * 60}" class="dg-bar"/>`).join('');
-  const wdl = `<rect x="160" y="16" width="81" height="14" class="dg-cho"/><rect x="241" y="16" width="49" height="14" class="dg-han"/>`;
-  const margin = [2, 4, 8, 14, 18, 15, 10, 6, 3, 2].map((v, i) => `<rect x="${160 + i * 13}" y="${38 - v * 1.5}" width="10" height="${v * 1.5}" class="dg-bar2"/>`).join('');
-  return `<svg viewBox="0 0 730 170" class="diagram" role="img" aria-label="Network diagram">
-    <text x="58" y="18" class="dg-sub" text-anchor="middle">90 points = 90 tokens</text>${tokens}
-    <path d="M118,86 l30,0 m-7,-6 l7,6 l-7,6" class="dg-arrow"/>
-    <text x="250" y="22" class="dg-sub" text-anchor="middle">12 attention layers, every point sees every point</text>${layers}
-    <path d="M345,86 l60,-56 M345,86 l60,0 M345,86 l60,56" class="dg-arrow-thin"/>
-    ${head(6, 'Move probabilities', policyBars)}
-    ${head(62, 'Win / loss', wdl)}
-    ${head(118, 'Point margin', margin)}
-    <text x="580" y="28" class="dg-note">example</text>
+    `<g transform="translate(470,${y})"><rect x="0" y="0" width="250" height="44" rx="8" class="dg-box"/>` +
+    `<text x="12" y="27" class="dg-title2">${title}</text><g transform="translate(150,6)">${chart}</g></g>`;
+  const policyBars = [0.42, 0.24, 0.12, 0.08, 0.05, 0.04].map((p, i) => `<rect x="${i * 14}" y="${32 - p * 70}" width="10" height="${p * 70}" class="dg-bar"/>`).join('');
+  const wdl = `<rect x="0" y="9" width="54" height="14" rx="2" class="dg-cho"/><rect x="54" y="9" width="38" height="14" rx="2" class="dg-han"/>`;
+  const margin = [2, 5, 10, 16, 18, 13, 7, 3].map((v, i) => `<rect x="${i * 11}" y="${32 - v * 1.6}" width="8" height="${v * 1.6}" class="dg-bar2"/>`).join('');
+  const midY = 88;
+  return `<svg viewBox="0 0 730 176" class="diagram" role="img" aria-label="Network diagram">
+    <text x="64" y="22" class="dg-sub" text-anchor="middle">90 points → 90 tokens</text>${tokens}
+    ${arrowLine(126, midY, 166, midY)}
+    <text x="267" y="22" class="dg-sub" text-anchor="middle">12 attention layers</text>${layers}
+    ${arrowLine(362, midY, 462, 30)}${arrowLine(362, midY, 462, midY)}${arrowLine(362, midY, 462, 146)}
+    ${head(8, 'Move probabilities', policyBars)}
+    ${head(66, 'Win / loss', wdl)}
+    ${head(124, 'Point margin', margin)}
   </svg>`;
 }
 
 function mctsDiagram(): string {
+  const pos: Record<string, [number, number]> = { r: [85, 36], a: [45, 72], b: [85, 72], c: [125, 72], ba: [68, 106], bb: [102, 106], n: [68, 138] };
   const step = (x: number, title: string, sub: string, body: string) =>
     `<g transform="translate(${x},0)"><text x="85" y="16" class="dg-title" text-anchor="middle">${title}</text>${body}` +
-    `<text x="85" y="158" class="dg-sub" text-anchor="middle">${sub}</text></g>`;
-  const nodes = (hot: string[], extra = '') => {
-    const pos: Record<string, [number, number]> = { r: [85, 34], a: [45, 72], b: [85, 72], c: [125, 72], ba: [68, 110], bb: [102, 110] };
+    `<text x="85" y="166" class="dg-sub" text-anchor="middle">${sub}</text></g>`;
+  const tree = (withNew: boolean) => {
     const edges: [string, string][] = [['r', 'a'], ['r', 'b'], ['r', 'c'], ['b', 'ba'], ['b', 'bb']];
-    let s = '';
+    const hot = ['r', 'b', 'ba'];
+    let t = '';
     for (const [p, c] of edges) {
       const h = hot.includes(p) && hot.includes(c);
-      s += `<line x1="${pos[p]![0]}" y1="${pos[p]![1]}" x2="${pos[c]![0]}" y2="${pos[c]![1]}" class="dg-edge${h ? ' dg-edge-hot' : ''}"/>`;
+      t += `<line x1="${pos[p]![0]}" y1="${pos[p]![1]}" x2="${pos[c]![0]}" y2="${pos[c]![1]}" class="dg-edge${h ? ' dg-edge-hot' : ''}"/>`;
     }
-    for (const [k, [x, y]] of Object.entries(pos)) s += `<circle cx="${x}" cy="${y}" r="${k === 'r' ? 8 : 6}" class="${hot.includes(k) ? 'dg-node-hot' : 'dg-node'}"/>`;
-    return s + extra;
+    if (withNew) t += `<line x1="68" y1="106" x2="68" y2="138" class="dg-edge dg-edge-new"/>`;
+    for (const k of ['r', 'a', 'b', 'c', 'ba', 'bb']) {
+      const [x, y] = pos[k]!;
+      t += `<circle cx="${x}" cy="${y}" r="${k === 'r' ? 8 : 6}" class="${hot.includes(k) ? 'dg-node-hot' : 'dg-node'}"/>`;
+    }
+    if (withNew) t += `<circle cx="68" cy="138" r="6" class="dg-node-new"/>`;
+    return t;
   };
-  const newNode = `<line x1="68" y1="110" x2="68" y2="138" class="dg-edge dg-edge-new"/><circle cx="68" cy="138" r="6" class="dg-node-new"/>`;
-  const evalBadge = `<rect x="80" y="128" width="58" height="20" rx="5" class="dg-badge"/><text x="109" y="142" class="dg-badge-t" text-anchor="middle">net: 62%</text>`;
-  const backup = `<path d="M58,128 Q40,100 52,80 M52,80 l-1,9 m1,-9 l7,5" class="dg-arrow-up"/><path d="M58,62 Q66,46 76,40 M76,40 l-9,1 m9,-1 l-3,8" class="dg-arrow-up"/>`;
-  return `<svg viewBox="0 0 700 165" class="diagram" role="img" aria-label="The four steps of one search visit">
-    ${step(0, '1 · Select', 'follow the best-scoring child', nodes(['r', 'b', 'ba']))}
-    ${step(175, '2 · Expand', 'add a new position', nodes(['r', 'b', 'ba'], newNode))}
-    ${step(350, '3 · Evaluate', 'the network scores it', nodes(['r', 'b', 'ba'], newNode + evalBadge))}
-    ${step(525, '4 · Back up', 'update visits and Q to the root', nodes(['r', 'b', 'ba'], newNode + backup))}
+  // Back-up: arrows running parallel to the path, offset to its left so they never cross a node.
+  const up = arrowLine(52, 136, 52, 112, 'dg-arrow-up', 7) + arrowLine(56, 100, 71, 76, 'dg-arrow-up', 7) + arrowLine(73, 64, 73, 44, 'dg-arrow-up', 7);
+  const badge = `<rect x="80" y="129" width="56" height="19" rx="9" class="dg-badge"/><text x="108" y="142" class="dg-badge-t" text-anchor="middle">net 62%</text>`;
+  return `<svg viewBox="0 0 700 172" class="diagram" role="img" aria-label="The four steps of one search visit">
+    ${step(0, '1 · Select', 'follow the best-scoring child', tree(false))}
+    ${step(175, '2 · Expand', 'add the new position', tree(true))}
+    ${step(350, '3 · Evaluate', 'the network scores it', tree(true) + badge)}
+    ${step(525, '4 · Back up', 'update visits and Q to the root', tree(true) + up)}
   </svg>`;
 }
 
 function trainingDiagram(): string {
-  const box = (x: number, y: number, w: number, title: string, num: string, sub: string) =>
-    `<g transform="translate(${x},${y})"><rect width="${w}" height="92" rx="10" class="dg-box"/>` +
+  const box = (x: number, w: number, title: string, num: string, sub: string) =>
+    `<g transform="translate(${x},0)"><rect width="${w}" height="100" rx="10" class="dg-box"/>` +
     `<text x="${w / 2}" y="24" class="dg-title" text-anchor="middle">${title}</text>` +
-    `<text x="${w / 2}" y="54" class="dg-num" text-anchor="middle">${num}</text>` +
-    `<text x="${w / 2}" y="76" class="dg-sub" text-anchor="middle">${sub}</text></g>`;
-  const arrow = (x: number) => `<path d="M${x},46 l22,0 m-7,-6 l7,6 l-7,6" class="dg-arrow"/>`;
-  const loopX = 600;
-  const loop = `<g transform="translate(${loopX},0)">
-    <circle cx="80" cy="46" r="40" class="dg-loop"/>
-    <path d="M118,38 l2,10 l8,-6" class="dg-loop-head"/>
-    <text x="80" y="20" class="dg-sub" text-anchor="middle">play itself</text>
-    <text x="80" y="50" class="dg-title" text-anchor="middle">Self-play</text>
-    <text x="80" y="80" class="dg-sub" text-anchor="middle">train · match · promote</text></g>`;
-  return `<svg viewBox="0 0 780 96" class="diagram" role="img" aria-label="Training pipeline">
-    ${box(0, 0, 160, 'Exact rules', '845K', 'positions, 0 mismatches')}${arrow(166)}
-    ${box(192, 0, 180, 'Teacher games', '50M', 'positions, Fairy-Stockfish NNUE')}${arrow(378)}
-    ${box(404, 0, 170, 'Supervised', '6.5 h', '52K steps on one GPU')}${arrow(576)}
-    ${loop}
+    `<text x="${w / 2}" y="58" class="dg-num" text-anchor="middle">${num}</text>` +
+    `<text x="${w / 2}" y="82" class="dg-sub" text-anchor="middle">${sub}</text></g>`;
+  const arrow = (x: number) => arrowLine(x + 2, 50, x + 24, 50);
+  // Self-play cycle: four stages around a ring, arrows between them.
+  const cx = 690;
+  const cy = 50;
+  const r = 38;
+  const stages = ['play', 'train', 'match', 'promote'];
+  let ring = `<circle cx="${cx}" cy="${cy}" r="${r}" class="dg-loop"/>`;
+  stages.forEach((st, i) => {
+    const a = -Math.PI / 2 + (i * Math.PI) / 2;
+    const tx = cx + Math.cos(a) * (r + 2);
+    const ty = cy + Math.sin(a) * (r + 2);
+    const lx = cx + Math.cos(a) * (r + 30);
+    const ly = cy + Math.sin(a) * (r + 18) + 4;
+    ring += `<circle cx="${tx}" cy="${ty}" r="4" class="dg-node-hot"/><text x="${lx}" y="${ly}" class="dg-sub" text-anchor="middle">${st}</text>`;
+    const a2 = a + Math.PI / 4;
+    const hx = cx + Math.cos(a2) * r;
+    const hy = cy + Math.sin(a2) * r;
+    ring += arrowLine(hx - Math.cos(a2 + Math.PI / 2) * 6, hy - Math.sin(a2 + Math.PI / 2) * 6, hx, hy, 'dg-arrow', 7);
+  });
+  ring += `<text x="${cx}" y="${cy + 5}" class="dg-title" text-anchor="middle">Self-play</text>`;
+  return `<svg viewBox="0 0 790 114" class="diagram" role="img" aria-label="Training pipeline">
+    ${box(0, 150, 'Exact rules', '845K', 'positions, 0 mismatches')}${arrow(150)}
+    ${box(178, 170, 'Teacher games', '50M', 'positions (FSF NNUE)')}${arrow(348)}
+    ${box(376, 160, 'Supervised', '6.5 h', '52K steps, one GPU')}${arrow(536)}
+    ${ring}
   </svg>`;
 }
 
@@ -219,6 +248,9 @@ export function renderAbout(container: HTMLElement): void {
 
     <h3>1 · The network</h3>
     ${networkDiagram()}
+    <h3 class="sub">Inside the network <span class="badge-live">live</span></h3>
+    <p class="caption">The real network on a real position. Try <i>Attention</i> and click pieces.</p>
+    <div id="network-viz" class="nv"></div>
     <table class="page-table compact">
       <thead><tr><th>Output</th><th>What it predicts</th><th>Where you see it</th></tr></thead>
       <tbody>
@@ -329,16 +361,16 @@ export function renderRules(container: HTMLElement): void {
 
     <h3>How the pieces move</h3>
     <div class="mini-grid">
-      ${miniBoard({ cols: 7, rows: 6, pieces: [{ c: 2, r: 3, img: B('chariot') }, { c: 5, r: 3, img: R('soldier') }],
+      ${miniBoard({ cols: 7, rows: 6, pieces: [{ c: 2, r: 3, img: B('chariot') }, { c: 5, r: 3, img: R('pawn') }],
         dots: [[0, 3], [1, 3], [3, 3], [4, 3], [2, 0], [2, 1], [2, 2], [2, 4], [2, 5]], captures: [[5, 3]],
         caption: '<b>車 Chariot</b> · 13 points<br>any distance in a line' })}
-      ${miniBoard({ cols: 7, rows: 5, pieces: [{ c: 0, r: 2, img: B('cannon') }, { c: 2, r: 2, img: B('soldier'), faded: true }, { c: 6, r: 2, img: R('chariot') }],
+      ${miniBoard({ cols: 7, rows: 5, pieces: [{ c: 0, r: 2, img: B('cannon') }, { c: 2, r: 2, img: B('pawn'), faded: true }, { c: 6, r: 2, img: R('chariot') }],
         dots: [[3, 2], [4, 2], [5, 2]], captures: [[6, 2]], crosses: [[1, 2]],
         caption: '<b>包 Cannon</b> · 7 points<br>must jump exactly one piece; never jumps or takes a cannon' })}
-      ${miniBoard({ cols: 5, rows: 5, pieces: [{ c: 2, r: 2, img: B('horse') }, { c: 2, r: 1, img: R('soldier'), faded: true }],
+      ${miniBoard({ cols: 5, rows: 5, pieces: [{ c: 2, r: 2, img: B('horse') }, { c: 2, r: 1, img: R('pawn'), faded: true }],
         dots: [[0, 1], [4, 1], [0, 3], [4, 3], [1, 4], [3, 4]], crosses: [[1, 0], [3, 0]],
         caption: '<b>馬 Horse</b> · 5 points<br>one straight, one diagonal; blocked by an adjacent piece' })}
-      ${miniBoard({ cols: 7, rows: 7, cell: 28, pieces: [{ c: 3, r: 3, img: B('elephant') }, { c: 4, r: 3, img: R('soldier'), faded: true }],
+      ${miniBoard({ cols: 7, rows: 7, cell: 28, pieces: [{ c: 3, r: 3, img: B('elephant') }, { c: 4, r: 3, img: R('pawn'), faded: true }],
         dots: [[1, 0], [5, 0], [0, 1], [0, 5], [1, 6], [5, 6]], crosses: [[6, 1], [6, 5]], paths: [[[3, 3], [3, 2], [1, 0]]],
         caption: '<b>象 Elephant</b> · 3 points<br>one straight, two diagonal; any piece in the way blocks it' })}
       ${miniBoard({ cols: 5, rows: 5, palace: [[1, 1]], pieces: [{ c: 2, r: 2, img: B('advisor') }],
