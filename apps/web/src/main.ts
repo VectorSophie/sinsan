@@ -32,6 +32,10 @@ const MODEL_VARIANTS = {
 } as const;
 type ModelVariant = keyof typeof MODEL_VARIANTS;
 
+// Full-size checkpoint served by training/play_server.py through the dev server's /api proxy
+// (searches on a GPU shared with self-play: roughly 0.3s / 1.3s / 5s / 12s per move).
+const SERVER_TIERS = [200, 800, 3200, 8000] as const;
+
 const FORMATIONS: Formation[] = ['masang-sangma', 'sangma-masang', 'masang-masang', 'sangma-sangma'];
 // 마상 (masang) = horse-then-elephant, 상마 (sangma) = elephant-then-horse - the two orders each
 // side can set its own left/right wing to at setup. Display labels are the real Hangul terms for
@@ -64,6 +68,9 @@ app.innerHTML = `
     </label>
     <label>AI
       <select id="ai-type">
+        ${SERVER_TIERS.map((visits) =>
+          `<option value="server:${visits}"${visits === 800 ? ' selected' : ''}>Sinsan 2026 (GPU server, ${visits} visits)</option>`,
+        ).join('')}
         <option value="random">Random</option>
         ${(Object.keys(MODEL_VARIANTS) as ModelVariant[])
           .map((v) => `<option value="model:${v}">Sinsan (${MODEL_VARIANTS[v].label}, policy only)</option>`)
@@ -71,7 +78,7 @@ app.innerHTML = `
         ${SEARCH_TIERS.flatMap((visits) =>
           (Object.keys(MODEL_VARIANTS) as ModelVariant[]).map(
             (v) =>
-              `<option value="search:${visits}:${v}"${visits === 16 && v === 'v3' ? ' selected' : ''}>` +
+              `<option value="search:${visits}:${v}">` +
               `Sinsan (${MODEL_VARIANTS[v].label}, ${visits}-visit search)</option>`,
           ),
         ).join('')}
@@ -104,6 +111,17 @@ let humanSide: Side = 'cho';
 let boardView: BoardView;
 let gameOver = false;
 let aiTimer: ReturnType<typeof setTimeout> | undefined;
+/** Moves of the current game in Fairy-Stockfish notation (files a-i, ranks 1-10 from Cho's side). */
+let uciMoves: string[] = [];
+let gameSetup = { cho: 'masang-sangma' as Formation, han: 'masang-sangma' as Formation };
+
+function squareToUci(square: number): string {
+  return String.fromCharCode(97 + (square % 9)) + String(10 - Math.floor(square / 9));
+}
+
+function moveToUci(move: Move): string {
+  return squareToUci(move.from) + squareToUci(move.to);
+}
 
 function resultText(result: GameResult): string {
   const winnerName = result.winner === 'cho' ? 'Cho' : result.winner === 'han' ? 'Han' : null;
@@ -148,6 +166,7 @@ function updateStatus(): void {
 }
 
 function afterMove(move: Move): void {
+  uciMoves.push(moveToUci(move));
   const isAiMove = move && position.sideToMove !== humanSide;
   boardView.sync(position, move, isAiMove ? AI_MOVE_MS : HUMAN_MOVE_MS);
   updateStatus();
@@ -240,8 +259,36 @@ function pickRandomMove(current: Position): Move {
   return nonPassMoves.length > 0 ? nonPassMoves[Math.floor(Math.random() * nonPassMoves.length)]! : legalMoves[0]!;
 }
 
+async function pickServerMove(current: Position, visits: number): Promise<Move> {
+  const legalMoves = generateLegalMoves(current);
+  const start = performance.now();
+  const response = await fetch('/api/move', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...gameSetup, moves: uciMoves, visits }),
+  });
+  const reply = await response.json();
+  if (!response.ok) throw new Error(reply.error ?? `server error ${response.status}`);
+  const move = legalMoves.find((m) => moveToUci(m) === reply.move);
+  if (!move) throw new Error(`server returned illegal move ${reply.move}`);
+  const elapsedMs = performance.now() - start;
+  // cp is from the server's side to move (Sinsan's); show it from Sinsan's point of view.
+  aiInfoEl.textContent =
+    `Sinsan 2026 (${visits} visits): eval ${reply.cp > 0 ? '+' : ''}${(reply.cp / 100).toFixed(2)} for Sinsan, ` +
+    `${elapsedMs.toFixed(0)}ms - PV ${reply.pv.slice(0, 8).join(' ')}`;
+  return move;
+}
+
 async function pickAiMove(current: Position): Promise<Move> {
   const parts = aiTypeSelect.value.split(':');
+  if (parts[0] === 'server') {
+    try {
+      return await pickServerMove(current, Number(parts[1]));
+    } catch (error) {
+      aiInfoEl.textContent = `Server engine unavailable (${String(error)}); is training/play_server.py running?`;
+      throw error;
+    }
+  }
   if (parts[0] === 'model') {
     return pickModelMove(current, parts[1] as ModelVariant);
   }
@@ -272,6 +319,8 @@ function newGame(): void {
   gameOver = false;
   searchTrees.clear(); // a new game is a different game line - don't reuse old trees
   humanSide = humanSideSelect.value as Side;
+  uciMoves = [];
+  gameSetup = { cho: setupChoSelect.value as Formation, han: setupHanSelect.value as Formation };
   position = createInitialPosition({
     setupCho: setupChoSelect.value as Formation,
     setupHan: setupHanSelect.value as Formation,
