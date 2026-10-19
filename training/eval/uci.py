@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 TRAINING_DIR = Path(__file__).resolve().parents[1]
@@ -19,6 +19,7 @@ class SearchInfo:
     depth: int
     nodes: int
     multipv: list[tuple[str, int | None, int | None]]  # (move, cp, mate), best first
+    pv: list[str] = field(default_factory=list)  # full principal variation of the best line
 
 
 class UciEngine:
@@ -67,6 +68,7 @@ class UciEngine:
         pvs: dict[int, tuple[str, int | None, int | None]] = {}
         depth = nodes = 0
         cp = mate = None
+        pv: list[str] = []
         for line in lines:
             if not line.startswith("info") or " pv " not in line:
                 continue
@@ -78,7 +80,8 @@ class UciEngine:
             pvs[rank] = (tok[tok.index("pv") + 1], s_cp, s_mate)
             if rank == 1:
                 depth, nodes, cp, mate = int(get("depth") or 0), int(get("nodes") or 0), s_cp, s_mate
-        return SearchInfo(best, cp, mate, depth, nodes, [pvs[k] for k in sorted(pvs)])
+                pv = tok[tok.index("pv") + 1:]
+        return SearchInfo(best, cp, mate, depth, nodes, [pvs[k] for k in sorted(pvs)], pv)
 
     def close(self) -> None:
         try:

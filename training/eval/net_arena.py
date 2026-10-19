@@ -76,7 +76,8 @@ class NetEvaluator:
 
 class NetPlayer:
     """Spec: net:<checkpoint>:<visits>[:key=value,...] with keys cpuct, cpuct_base, cpuct_factor,
-    fpu, fpu_root, ptemp (search policy temperature), util (margin utility), leaves."""
+    fpu, fpu_root, ptemp (search policy temperature), util (margin utility), leaves, temp and tplies
+    (move sampling temperature and the plies it applies to)."""
 
     SEARCH_KEYS = {"cpuct": "cpuct", "cpuct_base": "cpuct_base", "cpuct_factor": "cpuct_factor", "fpu": "fpu_reduction",
                    "fpu_root": "fpu_reduction_root", "ptemp": "policy_temp"}
@@ -100,6 +101,11 @@ class NetPlayer:
         params = {self.SEARCH_KEYS[k]: float(v) for k, v in options.items() if k in self.SEARCH_KEYS}
         self.batch = se.SearchBatch(**params)
         self.leaves = int(options.get("leaves", leaves_per_tree))
+        # Move sampling as in the web app's presets: temp > 0 samples from visits^(1/temp) (or from the
+        # priors when visits = 0) during the first tplies plies (default: the whole game).
+        self.temp = float(options.get("temp", 0.0))
+        self.tplies = int(options.get("tplies", 100_000))
+        self.rng = np.random.default_rng()
         self.active: set[int] = set()
         self.synced: dict[int, int] = {}
 
@@ -139,6 +145,13 @@ class NetPlayer:
                 done[slot] = max(children, key=lambda c: c[3])[0]
             elif self.batch.root_visits(slot) >= target:
                 done[slot] = self.batch.best_move(slot)
+        if self.temp > 0:
+            for slot in done:
+                if self.synced[slot] < self.tplies:
+                    children = self.batch.root_children(slot)
+                    searched = self.visits > 0 and any(c[1] > 0 for c in children)
+                    w = np.array([(c[1] if searched else c[3]) for c in children], np.float64) ** (1.0 / self.temp)
+                    done[slot] = children[self.rng.choice(len(children), p=w / w.sum())][0]
         for slot, move in done.items():
             self.active.discard(slot)
             self.batch.advance(slot, move)
@@ -171,13 +184,28 @@ class FsfPool:
         return self.pool.submit(run)
 
 
+class RandomPool:
+    """The ladder's random player: a uniformly random legal move, never passing unless forced."""
+
+    def __init__(self) -> None:
+        self.rng = np.random.default_rng()
+
+    def submit(self, game: se.Game) -> Future:
+        legal = game.legal_moves()
+        moves = [m for m in legal if m[: len(m) // 2] != m[len(m) // 2 :]] or legal
+        f: Future = Future()
+        f.set_result(moves[self.rng.integers(len(moves))])
+        return f
+
+
 def play_match(a: str, b: str, pairs: int, device: torch.device, concurrency: int, fsf_threads: int,
                out: Path | None = None, leaves_per_tree: int = 8) -> list[float]:
     openings = [json.loads(l) for l in OPENINGS.read_text().splitlines() if l.strip()]
     players: dict[str, object] = {}
     evaluators: dict = {}  # players sharing a checkpoint share one loaded model
     for spec in {a, b}:
-        players[spec] = NetPlayer(spec, device, leaves_per_tree, evaluators) if spec.startswith("net:") else FsfPool(spec, fsf_threads)
+        players[spec] = (NetPlayer(spec, device, leaves_per_tree, evaluators) if spec.startswith("net:")
+                         else RandomPool() if spec == "random" else FsfPool(spec, fsf_threads))
 
     # Queue of (pair, A plays Cho?) games; each slot holds one running game.
     queue = [(p, a_cho) for p in range(pairs) for a_cho in (True, False)]

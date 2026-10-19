@@ -156,6 +156,8 @@ body {
 }
 
 .analysis-panel {
+  --cho-color: #2c6e9e;
+  --han-color: #b23a3a;
   --panel-muted: color-mix(in srgb, var(--sinsan-ink) 45%, transparent);
   --panel-line: color-mix(in srgb, var(--sinsan-ink) 14%, transparent);
   width: min(92vw, 440px);
@@ -205,20 +207,38 @@ body {
   font-weight: 700;
 }
 
+/* Cho's share (blue) grows from the left; Han's (red) is the rest. */
 .ap-bar {
   position: relative;
-  height: 0.6rem;
-  border-radius: 0.3rem;
-  background: var(--panel-line);
+  height: 0.7rem;
+  border-radius: 0.35rem;
+  background: var(--han-color);
   overflow: hidden;
-  margin-bottom: 0.35rem;
+  margin: 0.3rem 0 0.35rem;
 }
 
 .ap-bar-fill {
   height: 100%;
   width: 50%;
-  background: var(--panel-muted);
-  transition: width 0.4s, background 0.4s;
+  background: var(--cho-color);
+  transition: width 0.4s;
+}
+
+.ap-eval-sides {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.ap-side-cho {
+  color: var(--cho-color);
+}
+
+.ap-side-han {
+  color: var(--han-color);
+  text-align: right;
 }
 
 /* Marker for the network's raw (pre-search) estimate. */
@@ -562,7 +582,7 @@ body {
 
 .ap-mv {
   display: grid;
-  grid-template-columns: 2.2rem 3.2rem 3.2rem 1fr;
+  grid-template-columns: 2rem 5.6rem 3rem auto 1fr;
   gap: 0.3rem;
   align-items: baseline;
   padding: 0.12rem 0.2rem;
@@ -596,12 +616,22 @@ body {
   background: color-mix(in srgb, var(--sinsan-accent) 12%, transparent);
 }
 
-.ap-mv-you .ap-cls {
-  grid-column: 4;
+.ap-mv-who {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.ap-mv-you {
-  grid-template-columns: 2.2rem 3.2rem 3.2rem auto 1fr;
+.ap-mv-cho .ap-mv-label {
+  color: var(--cho-color);
+}
+
+.ap-mv-han .ap-mv-label {
+  color: var(--han-color);
+}
+
+.ap-mv-pending {
+  color: var(--panel-muted);
 }
 
 .ap-cls {
@@ -837,3 +867,395 @@ body {
 .rl-promoted {
   fill: var(--sinsan-accent);
 }
+
+.ap-curve-fsf {
+  fill: none;
+  stroke: color-mix(in srgb, var(--sinsan-ink) 55%, transparent);
+  stroke-width: 1.2;
+  stroke-dasharray: 4 3;
+  vector-effect: non-scaling-stroke;
+}
+
+.ap-review-table {
+  border-collapse: collapse;
+  margin: 0.3rem 0 0.5rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.ap-review-table th,
+.ap-review-table td {
+  padding: 0.15rem 0.8rem 0.15rem 0;
+  text-align: left;
+}
+
+.ap-review-table th {
+  font-weight: 600;
+}
+
+.ap-review-acc {
+  font-weight: 700;
+  padding-top: 0.35rem !important;
+}
+
+/* Player pickers. */
+.setup-row {
+  align-items: center;
+}
+
+.setup-row label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.player-pick select {
+  font-weight: 600;
+}
+
+.cho-pick {
+  color: #2c6e9e;
+}
+
+.han-pick {
+  color: #b23a3a;
+}
+
+.vs {
+  color: color-mix(in srgb, var(--sinsan-ink) 50%, transparent);
+  padding: 0 0.3rem;
+}
+
+.es-sub {
+  font-size: 0.78rem;
+  color: color-mix(in srgb, var(--sinsan-ink) 55%, transparent);
+}
+
+.bot-controls[hidden] {
+  display: none;
+}
+
+/* Diagrams and charts on the info pages. */
+.diagram,
+.chart-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+  margin: 0.8rem 0;
+  overflow: visible;
+}
+
+.page .caption {
+  font-size: 0.86rem;
+  color: color-mix(in srgb, var(--sinsan-ink) 70%, transparent);
+  margin: 0.3rem 0 0.8rem;
+}
+
+.page-table.compact td,
+.page-table.compact th {
+  padding: 0.28rem 0.6rem 0.28rem 0;
+}
+
+.dg-box {
+  fill: color-mix(in srgb, var(--sinsan-ink) 4%, var(--sinsan-bg));
+  stroke: color-mix(in srgb, var(--sinsan-ink) 18%, transparent);
+}
+
+.dg-title,
+.dg-title2 {
+  font-size: 13px;
+  font-weight: 700;
+  fill: var(--sinsan-ink);
+}
+
+.dg-sub,
+.dg-note {
+  font-size: 10.5px;
+  fill: color-mix(in srgb, var(--sinsan-ink) 60%, transparent);
+}
+
+.dg-note {
+  font-style: italic;
+}
+
+.dg-num {
+  font-size: 22px;
+  font-weight: 700;
+  fill: var(--sinsan-accent);
+}
+
+.dg-arrow,
+.dg-arrow-thin,
+.dg-arrow-up,
+.dg-move {
+  fill: none;
+  stroke: var(--sinsan-accent);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.dg-arrow-thin {
+  stroke-width: 1.2;
+  opacity: 0.6;
+}
+
+.dg-move {
+  stroke-width: 3;
+}
+
+.dg-grid,
+.dg-edge {
+  stroke: color-mix(in srgb, var(--sinsan-ink) 30%, transparent);
+  stroke-width: 1.2;
+}
+
+.dg-edge-hot {
+  stroke: var(--sinsan-accent);
+  stroke-width: 2.5;
+}
+
+.dg-edge-new {
+  stroke-dasharray: 3 3;
+  stroke: var(--sinsan-accent);
+}
+
+.dg-node {
+  fill: var(--sinsan-bg);
+  stroke: color-mix(in srgb, var(--sinsan-ink) 45%, transparent);
+  stroke-width: 1.5;
+}
+
+.dg-node-hot {
+  fill: var(--sinsan-accent);
+}
+
+.dg-node-new {
+  fill: var(--sinsan-bg);
+  stroke: var(--sinsan-accent);
+  stroke-width: 2;
+  stroke-dasharray: 2 2;
+}
+
+.dg-badge {
+  fill: var(--sinsan-ink);
+}
+
+.dg-badge-t {
+  font-size: 10px;
+  font-weight: 700;
+  fill: var(--sinsan-bg);
+}
+
+.dg-cho {
+  fill: #2c6e9e;
+}
+
+.dg-han {
+  fill: #b23a3a;
+}
+
+.dg-token {
+  fill: color-mix(in srgb, var(--sinsan-ink) 45%, transparent);
+}
+
+.dg-layer {
+  fill: var(--sinsan-accent);
+  opacity: 0.75;
+}
+
+.dg-bar {
+  fill: var(--sinsan-accent);
+}
+
+.dg-bar2 {
+  fill: color-mix(in srgb, var(--sinsan-ink) 45%, transparent);
+}
+
+.dg-loop {
+  fill: none;
+  stroke: var(--sinsan-accent);
+  stroke-width: 2.5;
+  stroke-dasharray: 220 32;
+}
+
+.dg-loop-head {
+  fill: none;
+  stroke: var(--sinsan-accent);
+  stroke-width: 2.5;
+}
+
+.ch-label {
+  font-size: 12px;
+  fill: var(--sinsan-ink);
+}
+
+.ch-val,
+.ch-tick {
+  font-size: 11px;
+  fill: color-mix(in srgb, var(--sinsan-ink) 65%, transparent);
+  font-variant-numeric: tabular-nums;
+}
+
+.ch-bar,
+.ch-bar-new {
+  fill: var(--sinsan-accent);
+}
+
+.ch-bar-old {
+  fill: color-mix(in srgb, var(--sinsan-ink) 28%, transparent);
+}
+
+.ch-zero {
+  stroke: color-mix(in srgb, var(--sinsan-ink) 40%, transparent);
+}
+
+/* Mini boards for the rules. */
+.mini-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 1rem 1.2rem;
+  margin: 0.8rem 0;
+}
+
+.mini {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.mini svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.mini figcaption {
+  font-size: 0.82rem;
+  text-align: center;
+  line-height: 1.4;
+}
+
+.mb-wood {
+  fill: #e6c48a;
+}
+
+.mb-line {
+  stroke: #6b4a22;
+  stroke-width: 1.2;
+}
+
+.mb-dot {
+  fill: #2c8a4b;
+  opacity: 0.85;
+}
+
+.mb-capture {
+  fill: none;
+  stroke: #c8372d;
+  stroke-width: 2.5;
+}
+
+.mb-cross {
+  stroke: #c8372d;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+}
+
+.mb-path {
+  fill: none;
+  stroke: #2c8a4b;
+  stroke-width: 2.5;
+  stroke-dasharray: 4 3;
+}
+
+.two-col {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1.2rem;
+  align-items: start;
+  margin: 0.6rem 0;
+}
+
+.end-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 0.6rem;
+  margin: 0.6rem 0;
+}
+
+.end-card {
+  border: 1px solid color-mix(in srgb, var(--sinsan-ink) 14%, transparent);
+  border-radius: 0.5rem;
+  padding: 0.6rem 0.7rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.end-card span {
+  font-size: 0.82rem;
+  color: color-mix(in srgb, var(--sinsan-ink) 65%, transparent);
+}
+
+.pt-cho {
+  fill: #2c6e9e;
+}
+
+.pt-han {
+  fill: #b23a3a;
+}
+
+.pt-komi {
+  fill: #e0a63a;
+}
+
+.pt-t {
+  font-size: 11px;
+  font-weight: 700;
+  fill: #fff;
+}
+
+.legend-title {
+  font-weight: 600;
+  font-size: 0.85rem;
+  margin: 0.4rem 0 0.3rem;
+}
+
+.legend-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.3rem 0.7rem;
+  align-items: center;
+  font-size: 0.85rem;
+}
+
+.win-gradient {
+  height: 12px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, hsl(0 60% 45%), hsl(60 60% 45%), hsl(120 60% 45%));
+}
+
+.legend-ends {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  color: color-mix(in srgb, var(--sinsan-ink) 60%, transparent);
+}
+
+.curve {
+  fill: none;
+  stroke-width: 2.2;
+}
+
+.curve-a { stroke: color-mix(in srgb, var(--sinsan-ink) 40%, transparent); fill: none; }
+.curve-b { stroke: #2c6e9e; fill: none; }
+.curve-c { stroke: var(--sinsan-accent); fill: none; }
+
+.curve-label {
+  font-size: 11px;
+  stroke: none;
+}
+
+.curve-label.curve-a { fill: color-mix(in srgb, var(--sinsan-ink) 60%, transparent); }
+.curve-label.curve-b { fill: #2c6e9e; }
+.curve-label.curve-c { fill: var(--sinsan-accent); }

@@ -2,8 +2,8 @@ import { applyMove, findGeneral, pieceAt } from '@sinsan/rules';
 import type { GameResult, Move, Position, Side } from '@sinsan/rules';
 import type { BoardArrow } from '@sinsan/ui';
 
-/** What training/play_server.py returns for one search. Each q is from the point of view of the
- * side that played that move (-1 = certain loss, +1 = certain win). */
+/** What training/play_server.py returns for one Sinsan search. Each q is from the point of view of
+ * the side that played that move (-1 = certain loss, +1 = certain win). */
 export interface ServerAnalysis {
   move: string;
   best: string;
@@ -20,12 +20,23 @@ export interface ServerAnalysis {
   tree: [number, number, string, number, number | null, number, boolean][];
 }
 
+/** What /api/fsf returns: Fairy-Stockfish's move and its own evaluation (side to move). */
+export interface FsfInfo {
+  move: string;
+  cp: number | null;
+  mate: number | null;
+  depth: number;
+  nodes: number;
+  pv: string[];
+  ms: number;
+}
+
 interface TreeNode {
   move: string;
   label: string;
   depth: number;
   visits: number;
-  /** Sinsan's win probability (0..1) after this line, or null if never evaluated. */
+  /** Win probability (0..1) for the side that searched, or null if never evaluated. */
   win: number | null;
   prior: number;
   terminal: boolean;
@@ -36,34 +47,37 @@ interface TreeNode {
   y: number;
 }
 
-/** One search by Sinsan, made before it played `analysis.move` at `ply`. */
+/** One Sinsan search, made by `side` before it played `analysis.move` at `ply`. */
 interface Entry {
   ply: number;
+  side: Side;
   before: Position;
   analysis: ServerAnalysis;
 }
 
 type MoveClass = 'best' | 'excellent' | 'good' | 'inaccuracy' | 'mistake' | 'blunder';
 
-/** A move in the game record. Your moves are classified once Sinsan has searched the reply. */
+/** A move in the game record. A move is rated when Sinsan searched for the opponent both before
+ * and after it (you vs Sinsan: your moves; Fairy-Stockfish vs Sinsan: Fairy-Stockfish's moves). */
 interface Played {
   ply: number;
   side: Side;
   uci: string;
   label: string;
   entry?: number; // Sinsan's moves: index into entries
-  /** Your moves: your win chance (0..1) before the move, as Sinsan saw it after its own move. */
+  fsf?: FsfInfo;
+  /** The mover's win chance (0..1) before the move, from the opponent's preceding search. */
   before?: number;
-  expected?: string; // the reply Sinsan expected (its principal variation)
+  expected?: string; // the reply that search expected
   expectedLabel?: string;
-  loss?: number; // win chance given away by the move
+  loss?: number;
   cls?: MoveClass;
 }
 
 export interface AnalysisPanel {
-  reset(sinsan: Side): void;
+  reset(names: Record<Side, string>, viewer: Side, humans: readonly Side[]): void;
   addAnalysis(ply: number, before: Position, analysis: ServerAnalysis): void;
-  noteOpponentMove(ply: number, before: Position, move: Move): void;
+  noteMove(ply: number, before: Position, move: Move, fsf?: FsfInfo): void;
   gameOver(result: GameResult): void;
   showHint(kind: 'hint' | 'threat', before: Position, analysis: ServerAnalysis): void;
   setWaiting(waiting: boolean, what?: string): void;
@@ -71,8 +85,8 @@ export interface AnalysisPanel {
 
 export interface PanelCallbacks {
   onArrows(arrows: BoardArrow[]): void;
-  /** Your win chance (0..1), or null when unknown. */
-  onEval(humanWin: number | null): void;
+  /** Win chance (0..1) of the side at the bottom of the board, or null when unknown. */
+  onEval(viewerWin: number | null): void;
 }
 
 const GLYPHS: Record<string, [string, string]> = {
@@ -108,6 +122,13 @@ function moveAccuracy(loss: number): number {
   return Math.max(0, Math.min(100, 103.1668 * Math.exp(-0.04354 * loss * 100) - 3.1669));
 }
 
+/** Fairy-Stockfish centipawns to a win chance, with the scale fitted on its own games (sigmoid(cp/105)). */
+function cpToWin(cp: number | null, mate: number | null): number | null {
+  if (mate !== null) return mate > 0 ? 1 : 0;
+  if (cp === null) return null;
+  return 1 / (1 + Math.exp(-cp / 105));
+}
+
 function parseSquare(text: string): number {
   return (10 - Number(text.slice(1))) * 9 + (text.charCodeAt(0) - 97);
 }
@@ -140,13 +161,15 @@ function moveLabel(position: Position, uci: string): string {
   return `${glyph}${squareName(move.to)}`;
 }
 
-/** Labels for a line of moves played from `position`. */
+/** Labels for a line of moves played from `position` (stops at the first move that doesn't fit). */
 function lineLabels(position: Position, ucis: string[]): string[] {
   const out: string[] = [];
   let pos = position;
   for (const u of ucis) {
+    const m = parseUci(u);
+    if (!m.isPass && !pieceAt(pos, m.from)) break;
     out.push(moveLabel(pos, u));
-    pos = applyMove(pos, parseUci(u));
+    pos = applyMove(pos, m);
   }
   return out;
 }
@@ -155,7 +178,7 @@ function pct(p: number | null): string {
   return p === null ? '—' : `${(p * 100).toFixed(0)}%`;
 }
 
-/** Red (bad for Sinsan) through amber to green (good for Sinsan). */
+/** Red (bad for the searching side) through amber to green (good). */
 function winColor(p: number | null): string {
   if (p === null) return 'var(--panel-muted)';
   const hue = Math.max(0, Math.min(120, p * 120));
@@ -163,6 +186,7 @@ function winColor(p: number | null): string {
 }
 
 const other = (side: Side): Side => (side === 'cho' ? 'han' : 'cho');
+const SIDE_NAME: Record<Side, string> = { cho: 'Cho', han: 'Han' };
 const SIDE_BRUSH: Record<Side, string> = { cho: 'blue', han: 'red' };
 const PALE_BRUSH: Record<Side, string> = { cho: 'paleBlue', han: 'paleRed' };
 
@@ -184,9 +208,9 @@ export function createAnalysisPanel(container: HTMLElement, callbacks: PanelCall
   container.classList.add('analysis-panel');
   container.innerHTML = `
     <section class="ap-eval">
-      <div class="ap-eval-head"><span class="ap-title">Sinsan's win estimate</span><span class="ap-eval-num">—</span></div>
+      <div class="ap-eval-sides"><span class="ap-side ap-side-cho"></span><span class="ap-side ap-side-han"></span></div>
       <div class="ap-bar"><div class="ap-bar-fill"></div><div class="ap-bar-net" title="Network's first instinct, before search"></div></div>
-      <div class="ap-sub ap-eval-detail">Waiting for Sinsan's first move.</div>
+      <div class="ap-sub ap-eval-detail">Waiting for Sinsan's first search.</div>
       <div class="ap-sub ap-stats"></div>
     </section>
     <section class="ap-hint-box" hidden>
@@ -194,7 +218,7 @@ export function createAnalysisPanel(container: HTMLElement, callbacks: PanelCall
       <div class="ap-hint-text"></div>
     </section>
     <section>
-      <div class="ap-title-row"><span class="ap-title">Engine lines</span><span class="ap-sub">top 3 candidates, best play</span></div>
+      <div class="ap-title-row"><span class="ap-title">Engine lines</span><span class="ap-sub ap-lines-who"></span></div>
       <div class="ap-lines"></div>
     </section>
     <section>
@@ -208,7 +232,7 @@ export function createAnalysisPanel(container: HTMLElement, callbacks: PanelCall
       <div class="ap-sub ap-line">Hover a node to see that line on the board.</div>
     </section>
     <section>
-      <div class="ap-title">Win estimate over the game</div>
+      <div class="ap-title-row"><span class="ap-title">Win chance over the game</span><span class="ap-sub ap-graph-legend"></span></div>
       <div class="ap-graph"></div>
     </section>
     <section>
@@ -221,7 +245,8 @@ export function createAnalysisPanel(container: HTMLElement, callbacks: PanelCall
     </section>
   `;
   const q = <T extends Element>(s: string) => container.querySelector<T>(s)!;
-  const evalNum = q<HTMLSpanElement>('.ap-eval-num');
+  const sideCho = q<HTMLSpanElement>('.ap-side-cho');
+  const sideHan = q<HTMLSpanElement>('.ap-side-han');
   const barFill = q<HTMLDivElement>('.ap-bar-fill');
   const barNet = q<HTMLDivElement>('.ap-bar-net');
   const evalDetail = q<HTMLDivElement>('.ap-eval-detail');
@@ -230,7 +255,9 @@ export function createAnalysisPanel(container: HTMLElement, callbacks: PanelCall
   const hintTitle = q<HTMLSpanElement>('.ap-hint-title');
   const hintText = q<HTMLDivElement>('.ap-hint-text');
   const linesBox = q<HTMLDivElement>('.ap-lines');
+  const linesWho = q<HTMLSpanElement>('.ap-lines-who');
   const graph = q<HTMLDivElement>('.ap-graph');
+  const graphLegend = q<HTMLSpanElement>('.ap-graph-legend');
   const candBody = q<HTMLTableSectionElement>('.ap-cands tbody');
   const treeBox = q<HTMLDivElement>('.ap-tree');
   const lineBox = q<HTMLDivElement>('.ap-line');
@@ -243,27 +270,37 @@ export function createAnalysisPanel(container: HTMLElement, callbacks: PanelCall
   let entries: Entry[] = [];
   let played: Played[] = [];
   let selected = -1; // index into entries
-  let sinsan: Side = 'han';
-  let live = true; // the selected entry is the latest one and nobody has moved since: arrows match the board
+  let names: Record<Side, string> = { cho: 'Cho', han: 'Han' };
+  let viewer: Side = 'cho';
+  let humans: readonly Side[] = [];
+  let live = true; // the selected entry is the latest move: arrows match the board
   let hintArrows: BoardArrow[] | null = null;
+
+  const who = (side: Side) => names[side];
 
   function showArrows(arrows: BoardArrow[]): void {
     callbacks.onArrows(hintArrows ?? (live ? arrows : []));
   }
 
-  /** Sinsan's win chance (0..1) for the move it played in an entry (its Q), else the root value. */
+  /** The searching side's win chance for the move it played (its Q), else the root value. */
   function chosenWin(entry: Entry): number {
     const c = entry.analysis.candidates.find((x) => x.move === entry.analysis.move);
     return c && c.q !== null ? (c.q + 1) / 2 : (entry.analysis.value + 1) / 2;
   }
 
+  /** Win chance for `side` according to an entry's search. */
+  function winFor(entry: Entry, side: Side): number {
+    const w = (entry.analysis.value + 1) / 2;
+    return entry.side === side ? w : 1 - w;
+  }
+
   function buildTree(entry: Entry, detailed: boolean): TreeNode {
-    const { analysis, before } = entry;
+    const { analysis, before, side } = entry;
     const total = Math.max(1, analysis.visits);
     const minShare = detailed ? 0.004 : 0.015;
     const root: TreeNode = {
       move: '', label: 'now', depth: 0, visits: total, win: (analysis.value + 1) / 2, prior: 1, terminal: false,
-      mover: other(sinsan), parent: null, children: [], x: 0, y: 0,
+      mover: other(side), parent: null, children: [], x: 0, y: 0,
     };
     const nodes: (TreeNode | null)[] = [];
     const positions: Position[] = [];
@@ -276,11 +313,11 @@ export function createAnalysisPanel(container: HTMLElement, callbacks: PanelCall
         positions.push(before);
         continue;
       }
-      const mover: Side = depth % 2 === 1 ? sinsan : other(sinsan);
+      const mover: Side = depth % 2 === 1 ? side : other(side);
       const winForMover = qv === null ? null : (qv + 1) / 2;
       const node: TreeNode = {
         move, label: moveLabel(parentPos, move), depth, visits,
-        win: winForMover === null ? null : mover === sinsan ? winForMover : 1 - winForMover,
+        win: winForMover === null ? null : mover === side ? winForMover : 1 - winForMover,
         prior, terminal, mover, parent, children: [], x: 0, y: 0,
       };
       parent.children.push(node);
@@ -341,7 +378,7 @@ export function createAnalysisPanel(container: HTMLElement, callbacks: PanelCall
       }
     }
     for (const n of all) {
-      const g = svg('g', { class: `ap-node ${n.depth === 0 ? 'ap-root' : `ap-${n.mover === sinsan ? 'own' : 'opp'}`}` });
+      const g = svg('g', { class: `ap-node ${n.depth === 0 ? 'ap-root' : `ap-${n.mover === entry.side ? 'own' : 'opp'}`}` });
       const r = n.depth === 0 ? 6 : 3 + 6 * Math.sqrt(n.visits / total);
       g.appendChild(svg('circle', { cx: n.x, cy: n.y, r: r.toFixed(1), fill: winColor(n.win) }));
       const t = svg('text', { x: n.x + r + 3, y: n.y - 4, class: 'ap-node-label' });
@@ -353,17 +390,16 @@ export function createAnalysisPanel(container: HTMLElement, callbacks: PanelCall
         g.appendChild(v);
       }
       const title = svg('title', {});
-      title.textContent = n.depth === 0 ? 'Position Sinsan searched' :
-        `${n.mover === sinsan ? 'Sinsan' : 'You'}: ${n.label} (${n.move})\n${n.visits} visits, prior ${pct(n.prior)}\n` +
-        `Sinsan win ${pct(n.win)}${n.terminal ? '\ngame ends here' : ''}`;
+      title.textContent = n.depth === 0 ? 'Position searched' :
+        `${who(n.mover)}: ${n.label} (${n.move})\n${n.visits} visits, prior ${pct(n.prior)}\n` +
+        `${who(entry.side)} win ${pct(n.win)}${n.terminal ? '\ngame ends here' : ''}`;
       g.appendChild(title);
       if (n.depth > 0) {
         g.addEventListener('mouseenter', () => {
           const path = linePath(n);
-          showArrows(arrowsFor(path.map((p) => p.move), sinsan));
-          lineBox.textContent = path
-            .map((p, i) => `${i + 1}. ${p.mover === sinsan ? 'Sinsan' : 'You'} ${p.label}`)
-            .join('  ') + `  → Sinsan ${pct(n.win)}`;
+          showArrows(arrowsFor(path.map((p) => p.move), entry.side));
+          lineBox.textContent = path.map((p, i) => `${i + 1}. ${who(p.mover)} ${p.label}`).join('  ') +
+            `  → ${who(entry.side)} ${pct(n.win)}`;
         });
         g.addEventListener('mouseleave', () => {
           showArrows(defaultArrows(entry));
@@ -375,14 +411,15 @@ export function createAnalysisPanel(container: HTMLElement, callbacks: PanelCall
     treeBox.replaceChildren(s);
   }
 
-  /** On the board after Sinsan's move: the reply it expects (and, faintly, its follow-up). */
+  /** On the board after a Sinsan move: the reply it expects (and, faintly, its follow-up). */
   function defaultArrows(entry: Entry): BoardArrow[] {
-    return arrowsFor(entry.analysis.pv.slice(1, 3), other(sinsan), true);
+    return arrowsFor(entry.analysis.pv.slice(1, 3), other(entry.side), true);
   }
 
   /** Top candidates, each continued by the most-visited child at every ply (the tree's MultiPV). */
   function renderLines(entry: Entry): void {
     const { analysis, before } = entry;
+    linesWho.textContent = `${who(entry.side)}'s top 3, best play`;
     const rows = analysis.tree;
     const childrenOf = new Map<number, number[]>();
     rows.forEach((r, i) => childrenOf.set(r[0], [...(childrenOf.get(r[0]) ?? []), i]));
@@ -402,10 +439,9 @@ export function createAnalysisPanel(container: HTMLElement, callbacks: PanelCall
         const div = el('div', `ap-pvline${r[2] === analysis.move ? ' ap-chosen' : ''}`);
         const badge = el('span', 'ap-pv-eval', pct(win));
         badge.style.background = winColor(win);
-        const labels = lineLabels(before, line);
-        div.append(badge, el('span', 'ap-pv-moves', labels.map((l, i) => (i % 2 === 0 ? l : `${l}`)).join('  ')));
+        div.append(badge, el('span', 'ap-pv-moves', lineLabels(before, line).join('  ')));
         div.title = `${r[3]} visits`;
-        div.addEventListener('mouseenter', () => showArrows(arrowsFor(line.slice(0, 6), sinsan)));
+        div.addEventListener('mouseenter', () => showArrows(arrowsFor(line.slice(0, 6), entry.side)));
         div.addEventListener('mouseleave', () => showArrows(defaultArrows(entry)));
         return div;
       }),
@@ -436,32 +472,40 @@ export function createAnalysisPanel(container: HTMLElement, callbacks: PanelCall
           })(),
           el('td', 'ap-prior', pct(c.prior)),
         );
-        tr.addEventListener('mouseenter', () => showArrows(arrowsFor([c.move], sinsan)));
+        tr.addEventListener('mouseenter', () => showArrows(arrowsFor([c.move], entry.side)));
         tr.addEventListener('mouseleave', () => showArrows(defaultArrows(entry)));
         return tr;
       }),
     );
   }
 
+  /** Viewer's win chance by Sinsan's searches, plus Fairy-Stockfish's own evaluations when it plays. */
   function renderGraph(): void {
     const w = 400;
     const h = 96;
     const s = svg('svg', { width: '100%', viewBox: `0 0 ${w} ${h}`, class: 'ap-graph-svg' });
     s.appendChild(svg('line', { x1: 0, x2: w, y1: h / 2, y2: h / 2, class: 'ap-mid' }));
+    const lastPly = played.length ? played[played.length - 1]!.ply : 0;
+    const maxPly = Math.max(30, lastPly + 2);
+    const px = (ply: number) => (ply / maxPly) * (w - 10) + 5;
+    const py = (win: number) => (1 - win) * (h - 10) + 5;
+    const fsfPts = played.filter((p) => p.fsf && cpToWin(p.fsf.cp, p.fsf.mate) !== null).map((p) => {
+      const win = cpToWin(p.fsf!.cp, p.fsf!.mate)!;
+      return [px(p.ply), py(p.side === viewer ? win : 1 - win)] as const;
+    });
+    if (fsfPts.length > 1) {
+      s.appendChild(svg('polyline', { points: fsfPts.map(([x, y]) => `${x},${y}`).join(' '), class: 'ap-curve-fsf' }));
+    }
     if (entries.length > 0) {
-      const maxPly = Math.max(30, entries[entries.length - 1]!.ply + 2);
-      const xy = (e: Entry) => [(e.ply / maxPly) * (w - 10) + 5, (1 - (e.analysis.value + 1) / 2) * (h - 10) + 5] as const;
-      const pts = entries.map(xy);
+      const pts = entries.map((e) => [px(e.ply), py(winFor(e, viewer))] as const);
       const area = `M${pts[0]![0]},${h / 2} ` + pts.map(([x, y]) => `L${x},${y}`).join(' ') + ` L${pts[pts.length - 1]![0]},${h / 2} Z`;
       s.appendChild(svg('path', { d: area, class: 'ap-area' }));
       s.appendChild(svg('polyline', { points: pts.map(([x, y]) => `${x},${y}`).join(' '), class: 'ap-curve' }));
-      // Your costly moves, marked where they happened.
       for (const p of played) {
         if (p.cls !== 'mistake' && p.cls !== 'blunder' && p.cls !== 'inaccuracy') continue;
-        const x = (p.ply / maxPly) * (w - 10) + 5;
-        const mark = svg('line', { x1: x, x2: x, y1: 4, y2: h - 4, class: `ap-mark ap-mark-${p.cls}` });
+        const mark = svg('line', { x1: px(p.ply), x2: px(p.ply), y1: 4, y2: h - 4, class: `ap-mark ap-mark-${p.cls}` });
         const t = svg('title', {});
-        t.textContent = `Move ${p.ply + 1}: your ${p.label} - ${CLASS_INFO[p.cls].label}`;
+        t.textContent = `Move ${p.ply + 1}: ${who(p.side)} ${p.label} - ${CLASS_INFO[p.cls].label}`;
         mark.appendChild(t);
         s.appendChild(mark);
       }
@@ -469,61 +513,75 @@ export function createAnalysisPanel(container: HTMLElement, callbacks: PanelCall
         const c = svg('circle', { cx: x, cy: y, r: i === selected ? 4.5 : 2.8, class: i === selected ? 'ap-pt ap-pt-sel' : 'ap-pt' });
         const t = svg('title', {});
         const e = entries[i]!;
-        t.textContent = `Move ${e.ply + 1}: Sinsan ${moveLabel(e.before, e.analysis.move)}, win ${pct((e.analysis.value + 1) / 2)} (click to inspect)`;
+        t.textContent = `Move ${e.ply + 1}: ${who(e.side)} ${moveLabel(e.before, e.analysis.move)}, ${who(viewer)} ${pct(winFor(e, viewer))} (click to inspect)`;
         c.appendChild(t);
         c.addEventListener('click', () => select(i));
         s.appendChild(c);
       });
     }
+    graphLegend.textContent = `${who(viewer)}'s chances${fsfPts.length > 1 ? ' · dashed: Fairy-Stockfish' : ''}`;
     graph.replaceChildren(s);
   }
 
   function renderMoves(): void {
     const rows: HTMLElement[] = [];
     for (const p of played) {
-      const div = el('div', `ap-mv ap-mv-${p.side === sinsan ? 'sinsan' : 'you'}`);
-      div.append(el('span', 'ap-mv-num', `${p.ply + 1}.`), el('span', 'ap-mv-who', p.side === sinsan ? 'Sinsan' : 'You'),
-        el('span', 'ap-mv-label', p.label));
+      const div = el('div', `ap-mv ap-mv-${p.side}`);
+      div.append(el('span', 'ap-mv-num', `${p.ply + 1}.`), el('span', 'ap-mv-who', who(p.side)), el('span', 'ap-mv-label', p.label));
+      const info = el('span', 'ap-mv-info');
+      if (p.cls) {
+        const badge = el('span', `ap-cls ap-cls-${p.cls}`, `${CLASS_INFO[p.cls].symbol} ${CLASS_INFO[p.cls].label}`);
+        badge.title = p.expectedLabel && p.expected !== p.uci ? `Sinsan expected ${p.expectedLabel}` : 'The expected move';
+        div.append(badge);
+        if (p.loss !== undefined && p.loss >= 0.005) info.append(`−${(p.loss * 100).toFixed(0)}% `);
+        if (p.expectedLabel && p.expected !== p.uci) info.append(`best ${p.expectedLabel} `);
+      } else if (p.before !== undefined && p.loss === undefined) {
+        div.append(el('span', 'ap-mv-pending', '…'));
+      } else {
+        div.append(el('span', ''));
+      }
       if (p.entry !== undefined) {
         const e = entries[p.entry]!;
-        div.append(el('span', 'ap-mv-info', `${pct(chosenWin(e))} · ${e.analysis.visits.toLocaleString()} visits`));
+        info.append(`${pct(chosenWin(e))} · ${e.analysis.visits.toLocaleString()} visits`);
         div.classList.add('ap-mv-click');
         if (p.entry === selected) div.classList.add('ap-mv-sel');
         div.addEventListener('click', () => select(p.entry!));
-      } else if (p.cls) {
-        const badge = el('span', `ap-cls ap-cls-${p.cls}`, `${CLASS_INFO[p.cls].symbol} ${CLASS_INFO[p.cls].label}`);
-        const lossText = p.loss !== undefined && p.loss >= 0.005 ? ` (−${(p.loss * 100).toFixed(0)}%)` : '';
-        badge.title = p.expectedLabel && p.expected !== p.uci ? `Sinsan expected ${p.expectedLabel}` : 'Sinsan expected this move';
-        div.append(badge, el('span', 'ap-mv-info', lossText + (p.expectedLabel && p.expected !== p.uci ? ` best ${p.expectedLabel}` : '')));
-      } else if (p.before !== undefined) {
-        div.append(el('span', 'ap-mv-info', 'rating…'));
+      } else if (p.fsf) {
+        const win = cpToWin(p.fsf.cp, p.fsf.mate);
+        const score = p.fsf.mate !== null ? `mate ${p.fsf.mate}` : p.fsf.cp !== null ? `${p.fsf.cp > 0 ? '+' : ''}${(p.fsf.cp / 100).toFixed(2)}` : '';
+        info.append(`depth ${p.fsf.depth} · ${score} (${pct(win)})`);
       }
+      div.append(info);
       rows.push(div);
     }
     movesBox.replaceChildren(...(rows.length ? rows : [el('div', 'ap-sub', 'No moves yet.')]));
     movesBox.scrollTop = movesBox.scrollHeight;
-    const rated = played.filter((p) => p.loss !== undefined);
-    accuracyEl.textContent = rated.length
-      ? `your accuracy ${(rated.reduce((a, p) => a + moveAccuracy(p.loss!), 0) / rated.length).toFixed(1)}%`
-      : '';
+    const parts: string[] = [];
+    for (const side of ['cho', 'han'] as const) {
+      const rated = played.filter((p) => p.side === side && p.loss !== undefined);
+      if (rated.length) parts.push(`${who(side)} ${(rated.reduce((a, p) => a + moveAccuracy(p.loss!), 0) / rated.length).toFixed(1)}%`);
+    }
+    accuracyEl.textContent = parts.length ? `accuracy: ${parts.join(' · ')}` : '';
+  }
+
+  function renderEvalHeader(choWin: number | null, netChoWin: number | null): void {
+    sideCho.textContent = `${SIDE_NAME.cho} · ${who('cho')}  ${pct(choWin)}`;
+    sideHan.textContent = `${pct(choWin === null ? null : 1 - choWin)}  ${who('han')} · ${SIDE_NAME.han}`;
+    barFill.style.width = `${(choWin ?? 0.5) * 100}%`;
+    barNet.style.left = netChoWin === null ? '-10px' : `calc(${netChoWin * 100}% - 1px)`;
   }
 
   function select(i: number): void {
     selected = i;
-    live = i === entries.length - 1 && played[played.length - 1]?.entry === i;
     const entry = entries[i]!;
+    live = played[played.length - 1]?.entry === i;
     const { analysis } = entry;
-    const win = (analysis.value + 1) / 2;
+    const choWin = winFor(entry, 'cho');
     const netWin = analysis.net_value === null ? null : (analysis.net_value + 1) / 2;
-    evalNum.textContent = pct(win);
-    evalNum.style.color = winColor(win);
-    barFill.style.width = `${win * 100}%`;
-    barFill.style.background = winColor(win);
-    barNet.style.left = netWin === null ? '-10px' : `calc(${netWin * 100}% - 1px)`;
+    renderEvalHeader(choWin, netWin === null ? null : entry.side === 'cho' ? netWin : 1 - netWin);
     evalDetail.textContent =
-      `${i === entries.length - 1 ? 'Latest search' : `Viewing move ${entry.ply + 1}`} - ` +
-      (netWin === null ? 'search' : `first instinct ${pct(netWin)}, after search`) + ` ${pct(win)}` +
-      ` · ${analysis.cp > 0 ? '+' : ''}${(analysis.cp / 100).toFixed(2)}`;
+      `${i === entries.length - 1 ? 'Latest search' : `Viewing move ${entry.ply + 1}`} by ${who(entry.side)} - ` +
+      (netWin === null ? '' : `first instinct ${pct(netWin)}, after search `) + `${pct((analysis.value + 1) / 2)} for ${who(entry.side)}`;
     stats.textContent = `${analysis.visits.toLocaleString()} visits · depth ${analysis.depth} (max ${analysis.seldepth}) · ` +
       `${(analysis.ms / 1000).toFixed(1)}s · ${Math.round(analysis.visits / Math.max(0.001, analysis.ms / 1000)).toLocaleString()}/s · ` +
       `${analysis.legal} legal`;
@@ -535,32 +593,57 @@ export function createAnalysisPanel(container: HTMLElement, callbacks: PanelCall
     showArrows(defaultArrows(entry));
   }
 
-  function rateLastHumanMove(humanWinAfter: number): void {
-    const p = [...played].reverse().find((x) => x.side !== sinsan);
+  /** Rate the move just before `ply` if the opponent searched both before and after it. */
+  function rateMoveBefore(ply: number, moverWinAfter: number): void {
+    const p = played.find((x) => x.ply === ply - 1);
     if (!p || p.before === undefined || p.loss !== undefined) return;
-    p.loss = Math.max(0, p.before - humanWinAfter);
+    p.loss = Math.max(0, p.before - moverWinAfter);
     p.cls = classify(p.loss, p.expected === p.uci);
   }
 
+  /** Common bookkeeping for every move: the mover's win chance before it, if the opponent searched just before. */
+  function record(ply: number, before: Position, uci: string, extra: Partial<Played>): void {
+    const side = before.sideToMove;
+    const prev = entries[entries.length - 1];
+    const fresh = prev && prev.ply === ply - 1 && prev.side !== side;
+    played.push({
+      ply, side, uci, label: moveLabel(before, uci),
+      before: fresh ? 1 - chosenWin(prev) : undefined,
+      expected: fresh ? prev.analysis.pv[1] : undefined,
+      expectedLabel: fresh && prev.analysis.pv[1] ? lineLabels(before, [prev.analysis.pv[1]])[0] : undefined,
+      ...extra,
+    });
+  }
+
   function renderReview(result: GameResult): void {
-    const rated = played.filter((p) => p.cls);
-    const counts = new Map<MoveClass, number>();
-    for (const p of rated) counts.set(p.cls!, (counts.get(p.cls!) ?? 0) + 1);
-    const worst = [...rated].sort((a, b) => b.loss! - a.loss!)[0];
-    const youWon = result.winner !== null && result.winner !== sinsan;
+    const counts = new Map<string, number>();
+    for (const p of played) if (p.cls) counts.set(`${p.side}:${p.cls}`, (counts.get(`${p.side}:${p.cls}`) ?? 0) + 1);
+    const ratedSides = (['cho', 'han'] as const).filter((side) => played.some((p) => p.side === side && p.cls));
+    const winner = result.winner === null ? 'Draw' : `${who(result.winner)} (${SIDE_NAME[result.winner]}) won`;
+    const table = el('table', 'ap-review-table');
+    const head = el('tr');
+    head.append(el('th', '', ''), ...ratedSides.map((s) => el('th', '', who(s))));
+    table.append(head);
+    for (const cls of Object.keys(CLASS_INFO) as MoveClass[]) {
+      const tr = el('tr');
+      tr.append(el('td', '', ''));
+      tr.firstChild!.appendChild(el('span', `ap-cls ap-cls-${cls}`, `${CLASS_INFO[cls].symbol} ${CLASS_INFO[cls].label}`));
+      tr.append(...ratedSides.map((s) => el('td', '', String(counts.get(`${s}:${cls}`) ?? 0))));
+      table.append(tr);
+    }
+    const accRow = el('tr');
+    accRow.append(el('td', 'ap-review-acc', 'Accuracy'), ...ratedSides.map((s) => {
+      const rated = played.filter((p) => p.side === s && p.loss !== undefined);
+      return el('td', 'ap-review-acc', `${(rated.reduce((a, p) => a + moveAccuracy(p.loss!), 0) / rated.length).toFixed(1)}%`);
+    }));
+    table.append(accRow);
+    const worst = [...played].filter((p) => p.loss !== undefined).sort((a, b) => b.loss! - a.loss!)[0];
     reviewBody.replaceChildren(
-      el('div', 'ap-review-head', `${youWon ? 'You won' : result.winner === sinsan ? 'Sinsan won' : 'Draw'} · ` +
-        (rated.length ? `your accuracy ${(rated.reduce((a, p) => a + moveAccuracy(p.loss!), 0) / rated.length).toFixed(1)}%` : 'no rated moves')),
-      (() => {
-        const grid = el('div', 'ap-review-grid');
-        for (const cls of Object.keys(CLASS_INFO) as MoveClass[]) {
-          grid.append(el('span', `ap-cls ap-cls-${cls}`, `${CLASS_INFO[cls].symbol} ${CLASS_INFO[cls].label}`), el('span', '', String(counts.get(cls) ?? 0)));
-        }
-        return grid;
-      })(),
+      el('div', 'ap-review-head', `${winner} · ${result.kind}`),
+      ...(ratedSides.length ? [table] : [el('div', 'ap-sub', 'No moves were rated (moves are rated by the opponent Sinsan\'s searches).')]),
       el('div', 'ap-sub', worst && worst.loss! >= 0.05
-        ? `Biggest swing: move ${worst.ply + 1}, your ${worst.label} (−${(worst.loss! * 100).toFixed(0)}%); Sinsan expected ${worst.expectedLabel ?? '—'}.`
-        : 'No big swings - well played.'),
+        ? `Biggest swing: move ${worst.ply + 1}, ${who(worst.side)} ${worst.label} (−${(worst.loss! * 100).toFixed(0)}%); best was ${worst.expectedLabel ?? '—'}.`
+        : 'No big swings.'),
     );
     reviewBox.hidden = false;
   }
@@ -580,20 +663,19 @@ export function createAnalysisPanel(container: HTMLElement, callbacks: PanelCall
   }
 
   return {
-    reset(side: Side) {
+    reset(newNames, newViewer, newHumans) {
+      names = newNames;
+      viewer = newViewer;
+      humans = newHumans;
       entries = [];
       played = [];
       selected = -1;
-      sinsan = side;
       live = true;
       clearHint();
-      evalNum.textContent = '—';
-      evalNum.style.color = '';
-      barFill.style.width = '50%';
-      barFill.style.background = '';
-      barNet.style.left = '-10px';
-      evalDetail.textContent = `Sinsan plays ${sinsan === 'cho' ? 'Cho' : 'Han'}. Waiting for its first search.`;
+      renderEvalHeader(null, null);
+      evalDetail.textContent = 'Waiting for the first search.';
       stats.textContent = '';
+      linesWho.textContent = '';
       linesBox.replaceChildren();
       candBody.replaceChildren();
       treeBox.replaceChildren();
@@ -605,44 +687,43 @@ export function createAnalysisPanel(container: HTMLElement, callbacks: PanelCall
     },
     addAnalysis(ply, before, analysis) {
       clearHint();
-      rateLastHumanMove(1 - (analysis.value + 1) / 2);
-      entries.push({ ply, before, analysis });
-      played.push({ ply, side: sinsan, uci: analysis.move, label: moveLabel(before, analysis.move), entry: entries.length - 1 });
+      const side = before.sideToMove;
+      rateMoveBefore(ply, 1 - (analysis.value + 1) / 2);
+      record(ply, before, analysis.move, { entry: entries.length }); // before pushing: compares with the opponent's search
+      entries.push({ ply, side, before, analysis });
       select(entries.length - 1);
-      callbacks.onEval(1 - chosenWin(entries[entries.length - 1]!));
+      const e = entries[entries.length - 1]!;
+      callbacks.onEval(winFor(e, viewer));
     },
-    noteOpponentMove(ply, before, move) {
+    noteMove(ply, before, move, fsf) {
       clearHint();
-      const uci = moveToUci(move, before);
-      const last = entries[entries.length - 1];
-      const fresh = last && last.ply === ply - 1;
-      played.push({
-        ply, side: other(sinsan), uci, label: moveLabel(before, uci),
-        before: fresh ? 1 - chosenWin(last) : undefined,
-        expected: fresh ? last.analysis.pv[1] : undefined,
-        expectedLabel: fresh && last.analysis.pv[1] ? moveLabel(before, last.analysis.pv[1]) : undefined,
-      });
+      record(ply, before, moveToUci(move, before), fsf ? { fsf } : {});
       live = false; // the board has moved on; arrows from the last search would point at the wrong position
+      if (fsf) {
+        const win = cpToWin(fsf.cp, fsf.mate);
+        if (win !== null) callbacks.onEval(before.sideToMove === viewer ? win : 1 - win);
+        if (selected >= 0) renderGraph();
+      }
       renderMoves();
       callbacks.onArrows([]);
     },
     gameOver(result) {
       const last = played[played.length - 1];
-      if (last && last.side !== sinsan) rateLastHumanMove(result.winner === null ? 0.5 : result.winner === sinsan ? 0 : 1);
-      if (selected >= 0) renderGraph();
+      if (last) rateMoveBefore(last.ply + 1, result.winner === null ? 0.5 : result.winner === last.side ? 1 : 0);
+      renderGraph();
       renderMoves();
       renderReview(result);
-      callbacks.onEval(result.winner === null ? 0.5 : result.winner === sinsan ? 0 : 1);
+      callbacks.onEval(result.winner === null ? 0.5 : result.winner === viewer ? 1 : 0);
     },
     showHint(kind, before, analysis) {
-      const you = other(sinsan);
-      const win = (analysis.value + 1) / 2; // for the side that was to move in the searched position
-      const youWin = kind === 'hint' ? win : 1 - win;
-      const labels = lineLabels(before, analysis.pv.slice(0, 6));
-      hintTitle.textContent = kind === 'hint' ? 'Hint: Sinsan would play this for you' : 'Threat: what Sinsan would do if you passed';
-      hintText.textContent = `${labels.join('  ')}  · your win ${pct(youWin)} · ${analysis.visits.toLocaleString()} visits`;
+      const searcher = before.sideToMove;
+      const human = humans.includes(searcher) ? searcher : other(searcher);
+      const win = (analysis.value + 1) / 2;
+      const humanWin = searcher === human ? win : 1 - win;
+      hintTitle.textContent = kind === 'hint' ? 'Hint: Sinsan would play this for you' : 'Threat: what your opponent could do if you passed';
+      hintText.textContent = `${lineLabels(before, analysis.pv.slice(0, 6)).join('  ')}  · your chances ${pct(humanWin)} · ${analysis.visits.toLocaleString()} visits`;
       hintBox.hidden = false;
-      hintArrows = arrowsFor(analysis.pv.slice(0, kind === 'hint' ? 3 : 2), kind === 'hint' ? you : sinsan);
+      hintArrows = arrowsFor(analysis.pv.slice(0, kind === 'hint' ? 3 : 2), searcher);
       callbacks.onArrows(hintArrows);
     },
     setWaiting(waiting, what) {

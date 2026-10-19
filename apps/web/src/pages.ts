@@ -1,160 +1,397 @@
-/** The non-game pages: how Sinsan works, training progress, and the rules it plays by. */
+/** The non-game pages: how Sinsan works, training progress, and the rules it plays by.
+ * Diagrams are inline SVG; every number is measured (docs/REBUILD_LOG.md) unless marked as an example. */
+
+const PIECE_IMG = (side: 'blue' | 'red', piece: string) => `/assets/pieces/janggihb-ka-wooden/${side}_${piece}.svg`;
+
+// ---------- small SVG helpers (markup strings for static diagrams) ----------
+
+interface MiniBoard {
+  cols: number;
+  rows: number;
+  cell?: number;
+  /** Top-left point of a 3x3 palace inside the window, to draw its diagonals. */
+  palace?: [number, number][];
+  pieces?: { c: number; r: number; img: string; faded?: boolean }[];
+  dots?: [number, number][];
+  captures?: [number, number][];
+  crosses?: [number, number][];
+  paths?: [number, number][][];
+  caption?: string;
+}
+
+/** A window of the Janggi board: lines, palace diagonals, pieces, and move markers. */
+function miniBoard(b: MiniBoard): string {
+  const cell = b.cell ?? 34;
+  const m = cell * 0.6;
+  const w = (b.cols - 1) * cell + 2 * m;
+  const h = (b.rows - 1) * cell + 2 * m;
+  const X = (c: number) => m + c * cell;
+  const Y = (r: number) => m + r * cell;
+  const parts: string[] = [`<rect x="0" y="0" width="${w}" height="${h}" rx="6" class="mb-wood"/>`];
+  for (let c = 0; c < b.cols; c++) parts.push(`<line x1="${X(c)}" y1="${Y(0)}" x2="${X(c)}" y2="${Y(b.rows - 1)}" class="mb-line"/>`);
+  for (let r = 0; r < b.rows; r++) parts.push(`<line x1="${X(0)}" y1="${Y(r)}" x2="${X(b.cols - 1)}" y2="${Y(r)}" class="mb-line"/>`);
+  for (const [pc, pr] of b.palace ?? []) {
+    parts.push(`<line x1="${X(pc)}" y1="${Y(pr)}" x2="${X(pc + 2)}" y2="${Y(pr + 2)}" class="mb-line"/>`);
+    parts.push(`<line x1="${X(pc + 2)}" y1="${Y(pr)}" x2="${X(pc)}" y2="${Y(pr + 2)}" class="mb-line"/>`);
+  }
+  for (const path of b.paths ?? []) {
+    parts.push(`<polyline points="${path.map(([c, r]) => `${X(c)},${Y(r)}`).join(' ')}" class="mb-path"/>`);
+  }
+  for (const [c, r] of b.dots ?? []) parts.push(`<circle cx="${X(c)}" cy="${Y(r)}" r="${cell * 0.16}" class="mb-dot"/>`);
+  const ps = cell * 0.86;
+  for (const p of b.pieces ?? []) {
+    parts.push(`<image href="${p.img}" x="${X(p.c) - ps / 2}" y="${Y(p.r) - ps / 2}" width="${ps}" height="${ps}"${p.faded ? ' opacity="0.55"' : ''}/>`);
+  }
+  for (const [c, r] of b.captures ?? []) parts.push(`<circle cx="${X(c)}" cy="${Y(r)}" r="${cell * 0.46}" class="mb-capture"/>`);
+  for (const [c, r] of b.crosses ?? []) {
+    const d = cell * 0.17;
+    parts.push(`<path d="M${X(c) - d},${Y(r) - d} L${X(c) + d},${Y(r) + d} M${X(c) + d},${Y(r) - d} L${X(c) - d},${Y(r) + d}" class="mb-cross"/>`);
+  }
+  return `<figure class="mini"><svg viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img">${parts.join('')}</svg>` +
+    (b.caption ? `<figcaption>${b.caption}</figcaption>` : '') + `</figure>`;
+}
+
+/** Horizontal bar chart for a few labelled values. */
+function barChart(rows: { label: string; value: number; display?: string; cls?: string }[], opts: { min?: number; max: number; width?: number; unit?: string }): string {
+  const w = opts.width ?? 560;
+  const labelW = 190;
+  const rowH = 28;
+  const min = opts.min ?? 0;
+  const x = (v: number) => labelW + ((v - min) / (opts.max - min)) * (w - labelW - 70);
+  const h = rows.length * rowH + 8;
+  const zero = x(Math.max(min, 0));
+  const parts = rows.map((r, i) => {
+    const y = i * rowH + 4;
+    const x0 = Math.min(zero, x(r.value));
+    const bw = Math.max(2, Math.abs(x(r.value) - zero));
+    return `<text x="${labelW - 8}" y="${y + 17}" class="ch-label" text-anchor="end">${r.label}</text>` +
+      `<rect x="${x0}" y="${y + 5}" width="${bw}" height="${rowH - 10}" rx="3" class="${r.cls ?? 'ch-bar'}"/>` +
+      `<text x="${Math.max(x(r.value), zero) + 6}" y="${y + 17}" class="ch-val">${r.display ?? `${r.value}${opts.unit ?? ''}`}</text>`;
+  });
+  if (min < 0) parts.unshift(`<line x1="${zero}" x2="${zero}" y1="0" y2="${h}" class="ch-zero"/>`);
+  return `<svg viewBox="0 0 ${w} ${h}" class="chart-svg" role="img">${parts.join('')}</svg>`;
+}
+
+// ---------- How it works ----------
+
+function pipelineDiagram(): string {
+  const box = (x: number, title: string, sub: string, icon: string) =>
+    `<g transform="translate(${x},0)"><rect x="0" y="0" width="170" height="150" rx="10" class="dg-box"/>${icon}` +
+    `<text x="85" y="112" class="dg-title" text-anchor="middle">${title}</text><text x="85" y="132" class="dg-sub" text-anchor="middle">${sub}</text></g>`;
+  const arrow = (x: number) => `<path d="M${x},75 l22,0 m-7,-6 l7,6 l-7,6" class="dg-arrow"/>`;
+  let grid = '';
+  for (let i = 0; i < 5; i++) grid += `<line x1="${55 + i * 15}" y1="22" x2="${55 + i * 15}" y2="82" class="dg-grid"/><line x1="55" y1="${22 + i * 15}" x2="115" y2="${22 + i * 15}" class="dg-grid"/>`;
+  grid += `<circle cx="70" cy="52" r="6" class="dg-cho"/><circle cx="100" cy="37" r="6" class="dg-han"/><circle cx="85" cy="67" r="6" class="dg-cho"/>`;
+  let layers = '';
+  for (let i = 0; i < 5; i++) layers += `<rect x="${48 + i * 4}" y="${20 + i * 12}" width="66" height="10" rx="3" class="dg-layer" opacity="${0.5 + i * 0.1}"/>`;
+  let tree = `<circle cx="85" cy="24" r="6" class="dg-node-hot"/>`;
+  const kids = [[55, 52], [85, 52], [115, 52]];
+  for (const [kx, ky] of kids) tree += `<line x1="85" y1="24" x2="${kx}" y2="${ky}" class="dg-edge${kx === 85 ? ' dg-edge-hot' : ''}"/><circle cx="${kx}" cy="${ky}" r="5" class="${kx === 85 ? 'dg-node-hot' : 'dg-node'}"/>`;
+  for (const [kx, ky] of [[72, 80], [98, 80]]) tree += `<line x1="85" y1="52" x2="${kx}" y2="${ky}" class="dg-edge${kx === 72 ? ' dg-edge-hot' : ''}"/><circle cx="${kx}" cy="${ky}" r="4" class="${kx === 72 ? 'dg-node-hot' : 'dg-node'}"/>`;
+  const move = `<line x1="55" y1="70" x2="112" y2="30" class="dg-move"/><path d="M112,30 l-12,2 m12,-2 l-4,11" class="dg-move"/>` +
+    `<circle cx="55" cy="70" r="7" class="dg-cho"/>`;
+  return `<svg viewBox="0 0 776 150" class="diagram" role="img" aria-label="Position to network to search to move">
+    ${box(0, 'Position', 'board + last 3 moves', grid)}${arrow(176)}
+    ${box(202, 'Network', '60M transformer', layers)}${arrow(378)}
+    ${box(404, 'Search', '800 visits, tree reused', tree)}${arrow(580)}
+    ${box(606, 'Move', 'most-visited', move)}
+  </svg>`;
+}
+
+function networkDiagram(): string {
+  let tokens = '';
+  for (let r = 0; r < 10; r++) for (let c = 0; c < 9; c++) tokens += `<circle cx="${14 + c * 11}" cy="${30 + r * 11}" r="3.2" class="dg-token"/>`;
+  let layers = '';
+  for (let i = 0; i < 12; i++) layers += `<rect x="${160 + i * 15}" y="34" width="11" height="104" rx="3" class="dg-layer"/>`;
+  const head = (y: number, title: string, chart: string) =>
+    `<g transform="translate(420,${y})"><rect x="0" y="0" width="300" height="46" rx="8" class="dg-box"/>` +
+    `<text x="12" y="20" class="dg-title2">${title}</text>${chart}</g>`;
+  const policyBars = [0.42, 0.24, 0.12, 0.08, 0.05, 0.04, 0.03, 0.02].map((p, i) => `<rect x="${160 + i * 15}" y="${38 - p * 60}" width="11" height="${p * 60}" class="dg-bar"/>`).join('');
+  const wdl = `<rect x="160" y="16" width="81" height="14" class="dg-cho"/><rect x="241" y="16" width="49" height="14" class="dg-han"/>`;
+  const margin = [2, 4, 8, 14, 18, 15, 10, 6, 3, 2].map((v, i) => `<rect x="${160 + i * 13}" y="${38 - v * 1.5}" width="10" height="${v * 1.5}" class="dg-bar2"/>`).join('');
+  return `<svg viewBox="0 0 730 170" class="diagram" role="img" aria-label="Network diagram">
+    <text x="58" y="18" class="dg-sub" text-anchor="middle">90 points = 90 tokens</text>${tokens}
+    <path d="M118,86 l30,0 m-7,-6 l7,6 l-7,6" class="dg-arrow"/>
+    <text x="250" y="22" class="dg-sub" text-anchor="middle">12 attention layers, every point sees every point</text>${layers}
+    <path d="M345,86 l60,-56 M345,86 l60,0 M345,86 l60,56" class="dg-arrow-thin"/>
+    ${head(6, 'Move probabilities', policyBars)}
+    ${head(62, 'Win / loss', wdl)}
+    ${head(118, 'Point margin', margin)}
+    <text x="580" y="28" class="dg-note">example</text>
+  </svg>`;
+}
+
+function mctsDiagram(): string {
+  const step = (x: number, title: string, sub: string, body: string) =>
+    `<g transform="translate(${x},0)"><text x="85" y="16" class="dg-title" text-anchor="middle">${title}</text>${body}` +
+    `<text x="85" y="158" class="dg-sub" text-anchor="middle">${sub}</text></g>`;
+  const nodes = (hot: string[], extra = '') => {
+    const pos: Record<string, [number, number]> = { r: [85, 34], a: [45, 72], b: [85, 72], c: [125, 72], ba: [68, 110], bb: [102, 110] };
+    const edges: [string, string][] = [['r', 'a'], ['r', 'b'], ['r', 'c'], ['b', 'ba'], ['b', 'bb']];
+    let s = '';
+    for (const [p, c] of edges) {
+      const h = hot.includes(p) && hot.includes(c);
+      s += `<line x1="${pos[p]![0]}" y1="${pos[p]![1]}" x2="${pos[c]![0]}" y2="${pos[c]![1]}" class="dg-edge${h ? ' dg-edge-hot' : ''}"/>`;
+    }
+    for (const [k, [x, y]] of Object.entries(pos)) s += `<circle cx="${x}" cy="${y}" r="${k === 'r' ? 8 : 6}" class="${hot.includes(k) ? 'dg-node-hot' : 'dg-node'}"/>`;
+    return s + extra;
+  };
+  const newNode = `<line x1="68" y1="110" x2="68" y2="138" class="dg-edge dg-edge-new"/><circle cx="68" cy="138" r="6" class="dg-node-new"/>`;
+  const evalBadge = `<rect x="80" y="128" width="58" height="20" rx="5" class="dg-badge"/><text x="109" y="142" class="dg-badge-t" text-anchor="middle">net: 62%</text>`;
+  const backup = `<path d="M58,128 Q40,100 52,80 M52,80 l-1,9 m1,-9 l7,5" class="dg-arrow-up"/><path d="M58,62 Q66,46 76,40 M76,40 l-9,1 m9,-1 l-3,8" class="dg-arrow-up"/>`;
+  return `<svg viewBox="0 0 700 165" class="diagram" role="img" aria-label="The four steps of one search visit">
+    ${step(0, '1 · Select', 'follow the best-scoring child', nodes(['r', 'b', 'ba']))}
+    ${step(175, '2 · Expand', 'add a new position', nodes(['r', 'b', 'ba'], newNode))}
+    ${step(350, '3 · Evaluate', 'the network scores it', nodes(['r', 'b', 'ba'], newNode + evalBadge))}
+    ${step(525, '4 · Back up', 'update visits and Q to the root', nodes(['r', 'b', 'ba'], newNode + backup))}
+  </svg>`;
+}
+
+function trainingDiagram(): string {
+  const box = (x: number, y: number, w: number, title: string, num: string, sub: string) =>
+    `<g transform="translate(${x},${y})"><rect width="${w}" height="92" rx="10" class="dg-box"/>` +
+    `<text x="${w / 2}" y="24" class="dg-title" text-anchor="middle">${title}</text>` +
+    `<text x="${w / 2}" y="54" class="dg-num" text-anchor="middle">${num}</text>` +
+    `<text x="${w / 2}" y="76" class="dg-sub" text-anchor="middle">${sub}</text></g>`;
+  const arrow = (x: number) => `<path d="M${x},46 l22,0 m-7,-6 l7,6 l-7,6" class="dg-arrow"/>`;
+  const loopX = 600;
+  const loop = `<g transform="translate(${loopX},0)">
+    <circle cx="80" cy="46" r="40" class="dg-loop"/>
+    <path d="M118,38 l2,10 l8,-6" class="dg-loop-head"/>
+    <text x="80" y="20" class="dg-sub" text-anchor="middle">play itself</text>
+    <text x="80" y="50" class="dg-title" text-anchor="middle">Self-play</text>
+    <text x="80" y="80" class="dg-sub" text-anchor="middle">train · match · promote</text></g>`;
+  return `<svg viewBox="0 0 780 96" class="diagram" role="img" aria-label="Training pipeline">
+    ${box(0, 0, 160, 'Exact rules', '845K', 'positions, 0 mismatches')}${arrow(166)}
+    ${box(192, 0, 180, 'Teacher games', '50M', 'positions, Fairy-Stockfish NNUE')}${arrow(378)}
+    ${box(404, 0, 170, 'Supervised', '6.5 h', '52K steps on one GPU')}${arrow(576)}
+    ${loop}
+  </svg>`;
+}
+
+/** Example position: how the old and new label temperatures turn 8 candidate scores into targets. */
+function labelChart(): string {
+  const scores = [40, 22, 8, -6, -25, -60, -110, -180];
+  const soft = (t: number) => {
+    const e = scores.map((s) => Math.exp(s / t));
+    const z = e.reduce((a, b) => a + b, 0);
+    return e.map((v) => v / z);
+  };
+  const oldP = soft(800);
+  const newP = soft(30);
+  const w = 560;
+  const h = 170;
+  const bw = 22;
+  let bars = '';
+  scores.forEach((s, i) => {
+    const x = 50 + i * 62;
+    bars += `<rect x="${x}" y="${140 - oldP[i]! * 220}" width="${bw}" height="${oldP[i]! * 220}" class="ch-bar-old"/>`;
+    bars += `<rect x="${x + bw + 2}" y="${140 - newP[i]! * 220}" width="${bw}" height="${newP[i]! * 220}" class="ch-bar-new"/>`;
+    bars += `<text x="${x + bw}" y="158" class="ch-tick" text-anchor="middle">${s > 0 ? '+' : ''}${s}</text>`;
+  });
+  return `<svg viewBox="0 0 ${w} ${h + 6}" class="chart-svg" role="img" aria-label="Label sharpness example">
+    <line x1="40" x2="${w - 10}" y1="140" y2="140" class="ch-zero"/>
+    ${bars}
+    <text x="40" y="174" class="ch-tick">teacher's score for each of its 8 candidate moves (centipawns, example)</text>
+    <rect x="330" y="8" width="12" height="12" class="ch-bar-old"/><text x="348" y="18" class="ch-label">original target (÷800)</text>
+    <rect x="330" y="28" width="12" height="12" class="ch-bar-new"/><text x="348" y="38" class="ch-label">new target (÷30)</text>
+  </svg>`;
+}
+
+function classLegend(): string {
+  const rows: [string, string, string][] = [
+    ['best', '★ Best', 'the expected move, or < 0.5%'],
+    ['excellent', '! Excellent', '< 2%'],
+    ['good', '✓ Good', '< 5%'],
+    ['inaccuracy', '?! Inaccuracy', '< 10%'],
+    ['mistake', '? Mistake', '< 20%'],
+    ['blunder', '?? Blunder', '20% or more'],
+  ];
+  return `<div class="legend-grid">${rows.map(([c, l, t]) => `<span class="ap-cls ap-cls-${c}">${l}</span><span>${t}</span>`).join('')}</div>`;
+}
 
 export function renderAbout(container: HTMLElement): void {
   container.innerHTML = `
   <article class="page">
     <h2>How Sinsan works</h2>
-    <p class="lead">Sinsan is a Janggi engine that pairs a neural network with tree search, the approach behind
-      AlphaZero, Leela Chess Zero and KataGo. The network supplies judgement - which moves look promising and who
-      is winning - and the search checks that judgement by reading ahead.</p>
+    <p class="lead">A neural network for judgement, plus tree search to check it, the recipe of AlphaZero, Leela Chess Zero and KataGo.</p>
+    ${pipelineDiagram()}
 
-    <div class="flow" aria-label="How a move is chosen">
-      <div class="flow-step"><b>Position</b><span>pieces now and 3 moves ago, repetitions, points, pass and bikjang state</span></div>
-      <div class="flow-arrow">→</div>
-      <div class="flow-step"><b>Network</b><span>60M-parameter transformer: move probabilities, win/loss, expected point margin</span></div>
-      <div class="flow-arrow">→</div>
-      <div class="flow-step"><b>Search</b><span>hundreds to thousands of visits, each one reading a line deeper</span></div>
-      <div class="flow-arrow">→</div>
-      <div class="flow-step"><b>Move</b><span>the most-visited candidate</span></div>
-    </div>
-
-    <h3>The network</h3>
-    <p>Each position goes to a 12-layer transformer that treats the 90 board points as tokens, so every point can
-      relate to every other in one step - useful in Janggi, where chariots and cannons act across the whole board.
-      It predicts several things at once, and they all help it learn:</p>
-    <ul>
-      <li><b>Policy</b> - a probability for every legal move: its first instinct. Shown as <i>Prior</i> in the panel.</li>
-      <li><b>Win / loss</b> - who is winning: the <i>first instinct</i> marker on the win bar.</li>
-      <li><b>Point margin</b> - who would win on points and by how much, since many Janggi games end on points
-        (bikjang, passing, the move limit).</li>
-      <li>Training-only extras: the opponent's likely reply, how many moves are left, and a value for every candidate move.</li>
-    </ul>
-
-    <h3>The search</h3>
-    <p>Search grows a tree of possible continuations (Monte Carlo tree search with the PUCT formula). Each
-      <i>visit</i> walks down the tree, at every step choosing the move that best balances what it has learned so
-      far (its win rate in the search, <i>Q</i>) against the network's prior, then asks the network about the new
-      position and passes the result back up. Promising moves get more visits; a move whose deeper lines turn out
-      badly loses them. The move played is the most-visited one, and the tree is kept between moves.</p>
-    <p>Unlike Stockfish, the search has no fixed depth: it reads deeply where the play is forcing and shallowly
-      elsewhere. The panel shows the average depth of visited lines and the deepest line reached.</p>
-
-    <h3>How it was trained</h3>
-    <ol>
-      <li><b>Exact rules.</b> A new Rust rules engine reproduces Fairy-Stockfish's <code>janggi</code> rules (the ones
-        pychess.org uses), checked on 845,000 positions with zero disagreements, including every way a game can end.</li>
-      <li><b>Learning from a strong teacher.</b> Fairy-Stockfish with its Janggi NNUE played 284,000 complete games at
-        100,000 nodes per move, scoring its eight best moves in every position: 50 million labelled positions.
-        The network learned to predict those scores and the games' results.</li>
-      <li><b>Self-play.</b> The network then keeps playing itself with search (Gumbel MCTS) and learns from those
-        games. A new version replaces the old one only after beating it in a 400-game match.</li>
-    </ol>
-
-    <h3>What changed from the original Sinsan</h3>
-    <table class="page-table">
-      <thead><tr><th>Original</th><th>Now</th><th>Why it matters</th></tr></thead>
+    <h3>1 · The network</h3>
+    ${networkDiagram()}
+    <table class="page-table compact">
+      <thead><tr><th>Output</th><th>What it predicts</th><th>Where you see it</th></tr></thead>
       <tbody>
-        <tr><td>Move targets spread almost evenly over 8 moves (scores ÷ 800)</td><td>Sharp targets (÷ 30), fitted to the teacher's real score gaps</td><td>The old network couldn't tell good moves from merely legal ones</td></tr>
-        <tr><td>Teacher: Fairy-Stockfish classical, depth 5-6</td><td>Fairy-Stockfish NNUE, 100K nodes</td><td>Classical evaluation is worth about 10× fewer nodes</td></tr>
-        <tr><td>Only the first 60 plies of 1,800 games, half of them random</td><td>284,000 full games, opening to ending</td><td>Most of the game was never seen</td></tr>
-        <tr><td>Endings disagreed with Fairy-Stockfish (bikjang, repetition, move limit)</td><td>Rules engine verified against it</td><td>The network was learning the wrong outcomes</td></tr>
-        <tr><td>Tiny 56×7 CNN in the browser</td><td>60M transformer on a GPU, plus search</td><td>Strength first; a small browser model comes later</td></tr>
-        <tr><td>No strength measurement</td><td>Rated against a ladder of Fairy-Stockfish settings</td><td>Every change is measured in Elo</td></tr>
+        <tr><td>Move probabilities</td><td>which moves look good at a glance</td><td><i>Prior</i> column</td></tr>
+        <tr><td>Win / loss</td><td>who is winning</td><td>the marker on the win bar ("first instinct")</td></tr>
+        <tr><td>Point margin</td><td>who wins on points, by how much</td><td>used by <i>Point greed</i></td></tr>
       </tbody>
     </table>
-    <p>Result: the original V3 rated about −1,420 on the ladder; the current network rates about +2,400,
-      roughly 3,800 Elo stronger (see <a href="#progress">Progress</a>).</p>
 
-    <h3>What you can tune</h3>
-    <dl class="page-dl">
-      <dt>Network</dt><dd>The latest self-play network, the network before self-play, or a smaller early one.</dd>
-      <dt>Visits / time</dt><dd>How much it searches per move. More visits read deeper and play stronger; 800 is the tested setting.</dd>
-      <dt>Randomness</dt><dd>Plays a searched move in proportion to its visits instead of always the best: weaker and more varied.
-        Can be limited to the opening.</dd>
-      <dt>Exploration (cpuct)</dt><dd>Higher spreads the search over more moves; lower digs into the favourites. Default 1.745 (Leela Chess Zero's).</dd>
-      <dt>Unvisited-move penalty (FPU)</dt><dd>How pessimistic it is about moves it hasn't tried yet. Higher keeps the search narrow.</dd>
-      <dt>Policy softness</dt><dd>Flattens the network's move probabilities before searching, so less-favoured moves get a look.</dd>
-      <dt>Point greed</dt><dd>Adds the expected point margin to the win estimate, so it prefers winning by more.</dd>
-    </dl>
+    <h3>2 · The search</h3>
+    ${mctsDiagram()}
+    <p class="caption">One <b>visit</b> = these four steps. 800 visits per move by default; the most-visited move is played.
+      No fixed depth: it reads deep where play is forcing.</p>
+    <div class="chart">${barChart([
+      { label: 'CNN, instinct only', value: -330, display: '−330', cls: 'ch-bar-old' },
+      { label: 'CNN, 800 visits', value: 1079, display: '+1079' },
+      { label: 'Transformer, instinct only', value: -40, display: '−40', cls: 'ch-bar-old' },
+      { label: 'Transformer, 800 visits', value: 1690, display: '+1690' },
+    ], { min: -500, max: 1900 })}</div>
+    <p class="caption">Same network, with and without search: search adds about 1,400-1,700 Elo (ladder ratings of the two early networks).</p>
 
-    <h3>Reading the analysis panel</h3>
-    <dl class="page-dl">
-      <dt>Win estimate</dt><dd>Sinsan's chance of winning after its search. The thin marker is the network's first instinct before searching.</dd>
-      <dt>Visits · Win · Prior</dt><dd>How much search each candidate got, how it scored, and how much the network liked it beforehand.
-        A move with a low prior but many visits is one the search discovered.</dd>
-      <dt>Decision tree</dt><dd>The lines it read, left to right. Node size is visits, colour is Sinsan's win chance; your moves are in italics.
-        Hover a node to see the line on the board.</dd>
-      <dt>Move ratings</dt><dd>How much win chance your move gave away, by Sinsan's searches before and after it: Best (its expected move,
-        or under 0.5%), Excellent (&lt;2%), Good (&lt;5%), Inaccuracy (&lt;10%), Mistake (&lt;20%), Blunder (20%+). Accuracy uses Lichess's formula.</dd>
-      <dt>Threat</dt><dd>What Sinsan would play if you passed. Passing is legal in Janggi, so this is the real threat.</dd>
-    </dl>
+    <h3>3 · Training</h3>
+    ${trainingDiagram()}
+    <div class="chart">${labelChart()}</div>
+    <p class="caption">The biggest fix: the original turned the teacher's scores into almost flat targets, so the network never learned
+      which move was best. The new targets follow the teacher's real score gaps.</p>
 
-    <h3>Origins and the name</h3>
-    <p>Sinsan started from Moka, a project that distilled a strong Go engine into a tiny model that runs in the browser,
-      and set out to do the same for Janggi. This rebuild first builds a strong engine; the small browser model is distilled from it later.</p>
-    <p><b>神算 (신산, Sinsan)</b> means "calculation that has reached a divine level". It is a nickname of the Go (baduk)
-      professional Lee Chang-ho (이창호), known for his endgame precision. It is a Go term, not a Janggi title; the project
-      borrows its plain meaning.</p>
+    <h3>Then vs now</h3>
+    <div class="stat-row">
+      <div class="stat"><b>−1,424</b><span>original V3, 16 visits</span></div>
+      <div class="stat"><b>+2,412</b><span>now, 800 visits</span></div>
+      <div class="stat"><b>~3,800</b><span>Elo gained</span></div>
+    </div>
+    <table class="page-table compact">
+      <thead><tr><th></th><th>Original</th><th>Now</th></tr></thead>
+      <tbody>
+        <tr><td>Move targets</td><td>scores ÷ 800 (nearly flat)</td><td>scores ÷ 30</td></tr>
+        <tr><td>Teacher</td><td>Fairy-Stockfish classical, depth 5-6</td><td>Fairy-Stockfish NNUE, 100K nodes</td></tr>
+        <tr><td>Data</td><td>first 60 plies of 1,800 games</td><td>284,000 full games, 50M positions</td></tr>
+        <tr><td>Rules</td><td>endings differed from Fairy-Stockfish</td><td>verified identical</td></tr>
+        <tr><td>Model</td><td>56×7 CNN, 0.4 MB</td><td>12-layer transformer, 60M parameters</td></tr>
+        <tr><td>After training</td><td>-</td><td>self-play with promotion matches</td></tr>
+      </tbody>
+    </table>
 
-    <h3>Honest limits</h3>
-    <ul>
-      <li>Ratings here are against Fairy-Stockfish, not people. The goal is amateur 1단 (around 1,700-1,800 on pychess.org);
-        that needs games against humans, which haven't been played yet.</li>
-      <li>The engine runs on a GPU server. The browser-only version is a later phase.</li>
-    </ul>
+    <h3>Settings</h3>
+    <table class="page-table compact">
+      <thead><tr><th>Setting</th><th>Effect</th><th>Default</th></tr></thead>
+      <tbody>
+        <tr><td>Network</td><td>latest self-play / before self-play / small</td><td>latest</td></tr>
+        <tr><td>Visits or time</td><td>more = deeper and stronger</td><td>800</td></tr>
+        <tr><td>Randomness</td><td>plays moves in proportion to visits: weaker, varied</td><td>off</td></tr>
+        <tr><td>Exploration (cpuct)</td><td>↑ wider search · ↓ digs into favourites</td><td>1.745</td></tr>
+        <tr><td>Unvisited-move penalty</td><td>↑ narrower search</td><td>0.33</td></tr>
+        <tr><td>Policy softness</td><td>↑ gives disliked moves a look</td><td>1.36</td></tr>
+        <tr><td>Point greed</td><td>↑ prefers bigger point wins</td><td>off</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Reading the panel</h3>
+    <div class="two-col">
+      <div>
+        <div class="legend-title">Win colour (for the side that searched)</div>
+        <div class="win-gradient"></div>
+        <div class="legend-ends"><span>losing</span><span>even</span><span>winning</span></div>
+        <div class="legend-title">Decision tree</div>
+        <p class="caption">node size = visits · colour = win chance · italics = the opponent's moves · hover to draw the line</p>
+      </div>
+      <div>
+        <div class="legend-title">Move ratings (win chance given away)</div>
+        ${classLegend()}
+        <p class="caption">Rated by the opponent Sinsan's searches before and after the move. Accuracy uses Lichess's formula.</p>
+      </div>
+    </div>
+
+    <h3>Name and origins</h3>
+    <p class="caption">Started from <b>Moka</b>, which distilled a strong Go engine into a tiny browser model. <b>神算 (신산)</b>, "calculation of
+      divine level", is the nickname of Go professional Lee Chang-ho (이창호); it is a Go term, not a Janggi title.</p>
+    <p class="caption"><b>Limits:</b> ratings are against Fairy-Stockfish, not people; the 1단 goal (≈1,700-1,800 on pychess) still needs human games.
+      The browser-only version comes later.</p>
   </article>`;
 }
 
+// ---------- Rules ----------
+
 export function renderRules(container: HTMLElement): void {
+  const B = (p: string) => PIECE_IMG('blue', p);
+  const R = (p: string) => PIECE_IMG('red', p);
+  const material = [
+    ['chariot', 13, 2], ['cannon', 7, 2], ['horse', 5, 2], ['elephant', 3, 2], ['guard', 3, 2], ['soldier', 2, 5],
+  ] as const;
+  const total = material.reduce((a, [, v, n]) => a + v * n, 0);
+  const pointsBar = (side: 'cho' | 'han') => {
+    let x = 0;
+    const segs = material.map(([, v, n]) => {
+      const w = ((v * n) / 75) * 520;
+      const seg = `<rect x="${x}" y="0" width="${w - 2}" height="26" rx="3" class="pt-${side}"/><text x="${x + w / 2 - 1}" y="17" class="pt-t" text-anchor="middle">${v * n}</text>`;
+      x += w;
+      return seg;
+    }).join('');
+    const extra = side === 'han' ? `<rect x="${x}" y="0" width="${(1.5 / 75) * 520}" height="26" rx="2" class="pt-komi"/>` : '';
+    return segs + extra;
+  };
   container.innerHTML = `
   <article class="page">
     <h2>Rules</h2>
-    <p class="lead">Sinsan plays Fairy-Stockfish's <code>janggi</code> rules, the default on pychess.org.
-      Games are never drawn: anything that doesn't end in checkmate is decided on points.</p>
+    <p class="lead">Fairy-Stockfish <code>janggi</code>, as on pychess.org. Games are never drawn.</p>
 
-    <h3>Pieces</h3>
-    <table class="page-table">
-      <thead><tr><th>Piece</th><th>Moves</th><th>Points</th></tr></thead>
-      <tbody>
-        <tr><td>車 Chariot</td><td>Any distance orthogonally; also along the palace diagonals.</td><td>13</td></tr>
-        <tr><td>包 Cannon</td><td>Moves and captures by jumping exactly one piece (never a cannon); cannot capture a cannon. Also along palace diagonals.</td><td>7</td></tr>
-        <tr><td>馬 Horse</td><td>One step orthogonally, then one diagonally outward; blocked if the first square is occupied.</td><td>5</td></tr>
-        <tr><td>象 Elephant</td><td>One step orthogonally, then two diagonally outward; blocked if either square on the way is occupied.</td><td>3</td></tr>
-        <tr><td>士 Guard</td><td>One step along the palace lines, staying in the palace.</td><td>3</td></tr>
-        <tr><td>卒 兵 Soldier</td><td>One step forward or sideways; forward along the diagonals inside the enemy palace.</td><td>2</td></tr>
-        <tr><td>楚 漢 General</td><td>One step along the palace lines, staying in the palace.</td><td>—</td></tr>
-      </tbody>
-    </table>
-    <p>Cho (blue) moves first. Before the game each side chooses where its horses and elephants start (마상/상마 on each wing).</p>
+    <h3>How the pieces move</h3>
+    <div class="mini-grid">
+      ${miniBoard({ cols: 7, rows: 6, pieces: [{ c: 2, r: 3, img: B('chariot') }, { c: 5, r: 3, img: R('soldier') }],
+        dots: [[0, 3], [1, 3], [3, 3], [4, 3], [2, 0], [2, 1], [2, 2], [2, 4], [2, 5]], captures: [[5, 3]],
+        caption: '<b>車 Chariot</b> · 13 points<br>any distance in a line' })}
+      ${miniBoard({ cols: 7, rows: 5, pieces: [{ c: 0, r: 2, img: B('cannon') }, { c: 2, r: 2, img: B('soldier'), faded: true }, { c: 6, r: 2, img: R('chariot') }],
+        dots: [[3, 2], [4, 2], [5, 2]], captures: [[6, 2]], crosses: [[1, 2]],
+        caption: '<b>包 Cannon</b> · 7 points<br>must jump exactly one piece; never jumps or takes a cannon' })}
+      ${miniBoard({ cols: 5, rows: 5, pieces: [{ c: 2, r: 2, img: B('horse') }, { c: 2, r: 1, img: R('soldier'), faded: true }],
+        dots: [[0, 1], [4, 1], [0, 3], [4, 3], [1, 4], [3, 4]], crosses: [[1, 0], [3, 0]],
+        caption: '<b>馬 Horse</b> · 5 points<br>one straight, one diagonal; blocked by an adjacent piece' })}
+      ${miniBoard({ cols: 7, rows: 7, cell: 28, pieces: [{ c: 3, r: 3, img: B('elephant') }, { c: 4, r: 3, img: R('soldier'), faded: true }],
+        dots: [[1, 0], [5, 0], [0, 1], [0, 5], [1, 6], [5, 6]], crosses: [[6, 1], [6, 5]], paths: [[[3, 3], [3, 2], [1, 0]]],
+        caption: '<b>象 Elephant</b> · 3 points<br>one straight, two diagonal; any piece in the way blocks it' })}
+      ${miniBoard({ cols: 5, rows: 5, palace: [[1, 1]], pieces: [{ c: 2, r: 2, img: B('advisor') }],
+        dots: [[1, 1], [2, 1], [3, 1], [1, 2], [3, 2], [1, 3], [2, 3], [3, 3]],
+        caption: '<b>士 Guard</b> · 3 points / <b>楚 漢 General</b><br>one step along the palace lines' })}
+      ${miniBoard({ cols: 5, rows: 4, palace: [[1, 0]], pieces: [{ c: 1, r: 2, img: B('pawn') }],
+        dots: [[1, 1], [0, 2], [2, 2], [2, 1]], paths: [[[1, 2], [2, 1]]],
+        caption: '<b>卒 Soldier</b> · 2 points<br>forward or sideways; diagonally forward in the enemy palace' })}
+    </div>
 
     <h3>Passing and bikjang</h3>
-    <ul>
-      <li>You may pass instead of moving, except when in check.</li>
-      <li><b>Bikjang</b>: the two generals face each other on an open file. The side to move must break it or pass.
-        If it is still standing after the next move (the opponent passed rather than breaking it), the game ends on points.</li>
-    </ul>
+    <div class="two-col">
+      ${miniBoard({ cols: 9, rows: 10, cell: 20, palace: [[3, 0], [3, 7]], pieces: [{ c: 4, r: 1, img: R('king') }, { c: 4, r: 8, img: B('king') }],
+        paths: [[[4, 2], [4, 7]]], caption: '<b>Bikjang</b>: generals face each other on an open file' })}
+      <table class="page-table compact">
+        <tbody>
+          <tr><td>Pass</td><td>allowed any time except in check</td></tr>
+          <tr><td>Bikjang on the board</td><td>the side to move must break it or pass</td></tr>
+          <tr><td>Still standing a move later</td><td>game ends on points</td></tr>
+        </tbody>
+      </table>
+    </div>
 
     <h3>How games end</h3>
-    <table class="page-table">
-      <tbody>
-        <tr><td>Checkmate, or no legal moves</td><td>The side to move loses.</td></tr>
-        <tr><td>Bikjang left standing</td><td>Decided on points.</td></tr>
-        <tr><td>Both sides pass in a row</td><td>Decided on points.</td></tr>
-        <tr><td>100 plies without a capture</td><td>Decided on points.</td></tr>
-        <tr><td>The same position three times</td><td>If one side gave check on every move of the cycle, that side loses (perpetual check);
-          otherwise decided on points.</td></tr>
-      </tbody>
-    </table>
-    <p><b>Points:</b> add up your remaining pieces (values above). Han gets 1.5 extra for moving second,
-      so Cho needs to be at least 2 points ahead to win on points.</p>
+    <div class="end-grid">
+      <div class="end-card"><b>Checkmate</b><span>or no legal moves: the side to move loses</span></div>
+      <div class="end-card"><b>Bikjang left standing</b><span>points</span></div>
+      <div class="end-card"><b>Both sides pass</b><span>points</span></div>
+      <div class="end-card"><b>100 plies, no capture</b><span>points</span></div>
+      <div class="end-card"><b>Same position 3 times</b><span>points, unless one side checked every move: that side loses</span></div>
+    </div>
+
+    <h3>Points</h3>
+    <svg viewBox="0 0 640 80" class="chart-svg" role="img" aria-label="Starting points">
+      <text x="0" y="22" class="ch-label">Cho</text><g transform="translate(60,4)">${pointsBar('cho')}</g>
+      <text x="${60 + 520 * (total / 75) + 8}" y="22" class="ch-val">${total}</text>
+      <text x="0" y="62" class="ch-label">Han</text><g transform="translate(60,44)">${pointsBar('han')}</g>
+      <text x="${60 + 520 * ((total + 1.5) / 75) + 8}" y="62" class="ch-val">${total} + 1.5</text>
+    </svg>
+    <p class="caption">Chariots, cannons, horses, elephants, guards, soldiers at the start. Han gets 1.5 for moving second,
+      so Cho must lead by 2 to win on points.</p>
   </article>`;
 }
+
+// ---------- Progress ----------
 
 interface Progress {
   ladder: { id: string; label: string; elo: number; kind: string }[];
   nets: { id: string; label: string; elo: number; visits: number; matches: { opponent: string; games: number; score: number; elo: number }[] }[];
   rl: { iteration: number; promoted: boolean; score: number | null; elo: number | null; low: number | null; high: number | null }[];
   selfplay: string[];
+  curves: { label: string; points: { samples: number; top1: number; value_acc: number }[] }[];
+  endings: Record<string, number>;
 }
 
 const SVG = 'http://www.w3.org/2000/svg';
@@ -220,6 +457,33 @@ function rlChart(data: Progress): SVGSVGElement {
   return s;
 }
 
+/** Validation top-1 agreement with the teacher against training samples seen. */
+function curvesChart(data: Progress): SVGSVGElement {
+  const w = 760;
+  const h = 230;
+  const pad = 44;
+  const maxS = Math.max(...data.curves.flatMap((c) => c.points.map((p) => p.samples)), 1);
+  const lo = 0.28;
+  const hi = 0.48;
+  const x = (v: number) => pad + (v / maxS) * (w - pad - 150);
+  const y = (v: number) => 10 + ((hi - v) / (hi - lo)) * (h - 40);
+  const s = svg('svg', { viewBox: `0 0 ${w} ${h}`, class: 'rl-svg', role: 'img', 'aria-label': 'Learning curves' });
+  for (const t of [0.3, 0.35, 0.4, 0.45]) {
+    s.append(svg('line', { x1: pad, x2: w - 150, y1: y(t), y2: y(t), class: 'ladder-grid' }));
+    s.append(svg('text', { x: pad - 6, y: y(t) + 4, class: 'ladder-tick', 'text-anchor': 'end' }, `${Math.round(t * 100)}%`));
+  }
+  for (const m of [25e6, 50e6, 75e6, 100e6].filter((m) => m <= maxS)) {
+    s.append(svg('text', { x: x(m), y: h - 8, class: 'ladder-tick', 'text-anchor': 'middle' }, `${m / 1e6}M`));
+  }
+  const cls = ['curve-a', 'curve-b', 'curve-c'];
+  data.curves.forEach((c, i) => {
+    s.append(svg('polyline', { points: c.points.map((p) => `${x(p.samples)},${y(p.top1)}`).join(' '), class: `curve ${cls[i % 3]}` }));
+    const last = c.points[c.points.length - 1];
+    if (last) s.append(svg('text', { x: x(last.samples) + 8, y: y(last.top1) + 4, class: `curve-label ${cls[i % 3]}` }, `${c.label} ${(last.top1 * 100).toFixed(1)}%`));
+  });
+  return s;
+}
+
 export async function renderProgress(container: HTMLElement): Promise<void> {
   container.innerHTML = `<article class="page"><h2>Progress</h2><p class="lead">Loading…</p></article>`;
   let data: Progress;
@@ -233,11 +497,17 @@ export async function renderProgress(container: HTMLElement): Promise<void> {
   }
   const promoted = data.rl.filter((r) => r.promoted).length;
   const best = [...data.nets].sort((a, b) => b.elo - a.elo)[0];
+  const endTotal = Object.values(data.endings).reduce((a, b) => a + b, 0);
+  const endNames: Record<string, string> = {
+    checkmate: 'Checkmate', repetition: 'Repetition (points)', bikjang: 'Bikjang (points)', 'double-pass': 'Both passed (points)',
+    'move-limit': 'Move limit (points)', 'perpetual-check': 'Perpetual check',
+  };
+  const endRows = Object.entries(data.endings).sort((a, b) => b[1] - a[1])
+    .map(([k, v]) => ({ label: endNames[k] ?? k, value: Math.round((1000 * v) / Math.max(1, endTotal)) / 10, display: `${((100 * v) / Math.max(1, endTotal)).toFixed(0)}%` }));
   container.innerHTML = `
   <article class="page">
     <h2>Progress</h2>
-    <p class="lead">Live from the training server. Strength is measured in Elo against Fairy-Stockfish with its Janggi NNUE at
-      different node budgets; 0 is Fairy-Stockfish at 1,000 nodes per move. +200 Elo means winning about 3 games in 4.</p>
+    <p class="lead">Live from the training server. Elo against Fairy-Stockfish NNUE; 0 = 1,000 nodes per move. +200 ≈ winning 3 games in 4.</p>
     <div class="stat-row">
       <div class="stat"><b>${best ? `+${best.elo}` : '—'}</b><span>best rating (800 visits)</span></div>
       <div class="stat"><b>${data.rl.length}</b><span>self-play rounds</span></div>
@@ -246,16 +516,20 @@ export async function renderProgress(container: HTMLElement): Promise<void> {
     </div>
     <h3>Strength ladder</h3>
     <div class="chart ladder-chart"></div>
-    <p class="page-note">Sinsan nets search 800 visits per move; each rating averages its matches (200 games each) against the
-      settings it was tested on. Rounds 2 and 9 were each tested in a single match, so treat their ratings as ±50.</p>
+    <p class="page-note">Sinsan at 800 visits per move; each rating averages its 200-game matches. Rounds 2 and 9 had one match each (±50).</p>
+    <h3>Learning curves</h3>
+    <div class="chart curves-chart"></div>
+    <p class="page-note">How often the network's top move matches the teacher's on held-out positions, against training samples seen.</p>
     <h3>Self-play rounds</h3>
     <div class="chart rl-chart"></div>
-    <p class="page-note">Each round's new network against the current best (400 games, 128 visits): Elo with its 95% interval.
-      Filled points were promoted. Most rounds land within a few dozen Elo, which is why each promotion is also
-      re-checked against Fairy-Stockfish.</p>
+    <p class="page-note">New network vs current best, 400 games at 128 visits: Elo with 95% interval. Filled = promoted.</p>
+    <h3>How games end</h3>
+    <div class="chart">${barChart(endRows, { max: Math.max(10, ...endRows.map((r) => r.value)) * 1.1 })}</div>
+    <p class="page-note">${endTotal.toLocaleString()} games from the promotion matches.</p>
     <h3>Self-play now</h3>
     <pre class="page-pre">${data.selfplay.join('\n') || 'No self-play running.'}</pre>
   </article>`;
   container.querySelector('.ladder-chart')!.append(ladderChart(data));
+  container.querySelector('.curves-chart')!.append(curvesChart(data));
   container.querySelector('.rl-chart')!.append(rlChart(data));
 }

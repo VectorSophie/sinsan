@@ -15,18 +15,18 @@ export interface EngineSettings {
   util: number;
 }
 
-const DEFAULTS: EngineSettings = {
+export const DEFAULTS: EngineSettings = {
   net: 'best', limit: 'visits', visits: 800, timeMs: 3000, temperature: 0, tempPlies: 0,
   cpuct: 1.745, fpu: 0.33, ptemp: 1.36, util: 0,
 };
 
 /** Rough strength levels. Ratings are on the Fairy-Stockfish ladder (0 = FSF NNUE at 1K nodes),
  * not a human scale: the small net without search is roughly FSF at 1K nodes. */
-const PRESETS: { id: string; label: string; settings: Partial<EngineSettings> }[] = [
+export const PRESETS: { id: string; label: string; settings: Partial<EngineSettings> }[] = [
   { id: 'casual', label: 'Casual - small net, instinct only, varied', settings: { net: 'small', limit: 'visits', visits: 1, temperature: 1, tempPlies: 0 } },
   { id: 'club', label: 'Club - small net, 16 visits', settings: { net: 'small', limit: 'visits', visits: 16, temperature: 0.5, tempPlies: 20 } },
   { id: 'strong', label: 'Strong - latest net, 64 visits', settings: { net: 'best', limit: 'visits', visits: 64, temperature: 0, tempPlies: 0 } },
-  { id: 'full', label: 'Full - latest net, 800 visits (~+2300)', settings: { net: 'best', limit: 'visits', visits: 800, temperature: 0, tempPlies: 0 } },
+  { id: 'full', label: 'Full - latest net, 800 visits', settings: { net: 'best', limit: 'visits', visits: 800, temperature: 0, tempPlies: 0 } },
   { id: 'max', label: 'Maximum - latest net, 10 s per move', settings: { net: 'best', limit: 'time', timeMs: 10000, temperature: 0, tempPlies: 0 } },
 ];
 
@@ -54,6 +54,23 @@ function save(s: EngineSettings): void {
 const visitsFromSlider = (v: number): number => Math.max(1, Math.round(Math.pow(20000, v / 100)));
 const sliderFromVisits = (n: number): number => (100 * Math.log(Math.max(1, n))) / Math.log(20000);
 
+/** /api/move request fields for a full settings object. */
+export function requestFieldsFor(s: EngineSettings): Record<string, number | string> {
+  const f: Record<string, number | string> = {
+    net: s.net, cpuct: s.cpuct, fpu: s.fpu, ptemp: s.ptemp, util: s.util,
+    temperature: s.temperature, temp_plies: s.tempPlies === 0 ? 100000 : s.tempPlies,
+  };
+  if (s.limit === 'time') f['time_ms'] = s.timeMs;
+  else f['visits'] = s.visits;
+  return f;
+}
+
+/** Settings for a named preset (search style at defaults). */
+export function presetSettings(id: string): EngineSettings {
+  const p = PRESETS.find((x) => x.id === id);
+  return { ...DEFAULTS, ...(p?.settings ?? {}) };
+}
+
 export interface SettingsControl {
   get(): EngineSettings;
   /** Request body fields for /api/move. */
@@ -66,7 +83,7 @@ export function createEngineSettings(container: HTMLElement, onChange: () => voi
   container.classList.add('engine-settings');
   container.innerHTML = `
     <details>
-      <summary><span class="es-title">Sinsan settings</span> <span class="es-summary"></span></summary>
+      <summary><span class="es-title">Sinsan settings</span> <span class="es-sub">(the "Sinsan - my settings" player)</span> <span class="es-summary"></span></summary>
       <div class="es-grid">
         <label class="es-wide">Preset
           <select data-k="preset"><option value="">Custom</option>
@@ -174,14 +191,6 @@ export function createEngineSettings(container: HTMLElement, onChange: () => voi
   return {
     get: () => s,
     summary,
-    requestFields() {
-      const f: Record<string, number | string> = {
-        net: s.net, cpuct: s.cpuct, fpu: s.fpu, ptemp: s.ptemp, util: s.util,
-        temperature: s.temperature, temp_plies: s.tempPlies === 0 ? 100000 : s.tempPlies,
-      };
-      if (s.limit === 'time') f['time_ms'] = s.timeMs;
-      else f['visits'] = s.visits;
-      return f;
-    },
+    requestFields: () => requestFieldsFor(s),
   };
 }
