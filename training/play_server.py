@@ -1,6 +1,9 @@
 """Local HTTP endpoint so the web app (apps/web) can play against full-size checkpoints.
 
 GET  /api/nets  -> [{"id", "label", "path"}]: the networks a request may choose from.
+GET  /api/progress -> {"ladder": [...], "nets": [...], "rl": [...], "selfplay": [...]}: Fairy-Stockfish
+                 ladder anchors, Sinsan nets rated from their saved matches against it, the RL loop's
+                 gate history and the self-play workers' latest progress lines.
 POST /api/move  {"cho": formation, "han": formation, "moves": [uci...], plus optional settings:
                  "net" (id from /api/nets), "visits", "time_ms" (stop at whichever limit comes first),
                  "cpuct", "fpu", "ptemp" (search policy temperature), "util" (point-margin utility),
@@ -24,6 +27,7 @@ import argparse
 import json
 import math
 import random
+import re
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -34,6 +38,17 @@ import torch
 from eval.net_arena import NetEvaluator
 from uci_engine import Engine, value_to_cp
 
+TRAINING_DIR = Path(__file__).resolve().parent
+RESULTS = TRAINING_DIR / "eval" / "results"
+RL_RUN = TRAINING_DIR / "runs" / "rl1"
+# Saved match files (eval/results/<prefix>-v800-fsf_*.json) for nets shown on the progress page.
+RATED_NETS = [
+    ("abl-cnn256x15", "CNN 17M (9M positions)"),
+    ("abl-tf384x10", "Transformer 35M (9M positions)"),
+    ("p3", "Transformer 60M, supervised (36M positions)"),
+    ("rl1-it2", "After RL round 2"),
+    ("rl1-it9", "After RL round 9"),
+]
 MAX_VISITS = 50_000
 MAX_TIME_MS = 60_000
 DEFAULTS = {"cpuct": 1.745, "fpu": 0.33, "ptemp": 1.36}
@@ -42,6 +57,50 @@ REFERENCE_NETS = [
     ("p3", "Before RL (60M supervised, ~+2250)", "runs/p3-tf512x12/ema-0052000.pt"),
     ("small", "Small (35M, 9M positions, ~+1750)", "runs/abl-tf384x10/ema-0014000.pt"),
 ]
+
+
+def progress() -> dict:
+    """Everything the web app's progress page shows, computed from files on disk."""
+    anchors = {k: v[0] for k, v in json.loads((RESULTS / "ladder-ratings.json").read_text()).items()}
+    names = {"random": "Random moves", "oldnet:baseline-v3-56x7:56x7:0": "Original Sinsan V3, no search",
+             "oldnet:baseline-v3-56x7:56x7:16": "Original Sinsan V3, 16 visits"}
+    ladder = []
+    for spec, elo in anchors.items():
+        parts = spec.split(":")
+        label = names.get(spec) or (f"Fairy-Stockfish {'NNUE' if parts[1] == 'nnue' else 'classical'} "
+                                    f"{int(parts[2]):,} nodes")
+        ladder.append({"id": spec, "label": label, "elo": round(elo), "kind": "fsf" if spec.startswith("fsf") else "other"})
+    nets = []
+    for prefix, label in RATED_NETS:
+        estimates = []
+        for f in sorted(RESULTS.glob(f"{prefix}-v800-fsf_*.json")):
+            games = [json.loads(line) for line in f.read_text().splitlines() if line.strip()]
+            if not games:
+                continue
+            opp = games[0]["b"]
+            # winner is a colour: "w" = Cho, "b" = Han; a_cho says which colour player a had.
+            score = sum(1.0 if (g["winner"] == "w") == g["a_cho"] else 0.0 for g in games) / len(games)
+            score = min(max(score, 0.5 / len(games)), 1 - 0.5 / len(games))
+            estimates.append({"opponent": opp, "games": len(games), "score": score,
+                              "elo": round(anchors[opp] - 400 * math.log10(1 / score - 1))})
+        if estimates:
+            nets.append({"id": prefix, "label": label, "visits": 800, "matches": estimates,
+                         "elo": round(sum(e["elo"] for e in estimates) / len(estimates))})
+    rl = []
+    state_file = RL_RUN / "state.json"
+    if state_file.exists():
+        for h in json.loads(state_file.read_text())["history"]:
+            gate = h.get("gate") or ""
+            m = re.search(r"\(([\d.]+)%\), Elo ([+-]?\d+) \[([+-]?\d+), ([+-]?\d+)\]", gate)
+            rl.append({"iteration": h["iteration"], "promoted": h["promoted"],
+                       "score": float(m.group(1)) if m else None, "elo": int(m.group(2)) if m else None,
+                       "low": int(m.group(3)) if m else None, "high": int(m.group(4)) if m else None})
+    selfplay = []
+    log = RL_RUN / "loop.log"
+    if log.exists():
+        lines = [l for l in log.read_text(errors="replace").splitlines()[-200:] if "positions from" in l]
+        selfplay = lines[-2:]
+    return {"ladder": sorted(ladder, key=lambda x: x["elo"]), "nets": nets, "rl": rl, "selfplay": selfplay}
 
 
 def main() -> None:
@@ -138,6 +197,11 @@ def main() -> None:
         def do_GET(self) -> None:
             if self.path == "/api/nets":
                 self.reply(200, nets())
+            elif self.path == "/api/progress":
+                try:
+                    self.reply(200, progress())
+                except Exception as e:
+                    self.reply(500, {"error": repr(e)})
             else:
                 self.reply(404, {"error": "not found"})
 

@@ -10,6 +10,7 @@ import type { Formation, GameResult, Move, Position, Side } from '@sinsan/rules'
 import { createBoardView } from '@sinsan/ui';
 import { createAnalysisPanel, moveToUci } from './analysis-panel.ts';
 import { createEngineSettings } from './engine-settings.ts';
+import { renderAbout, renderProgress, renderRules } from './pages.ts';
 import type { ServerAnalysis } from './analysis-panel.ts';
 import type { BoardView } from '@sinsan/ui';
 
@@ -29,40 +30,53 @@ const AI_THINK_DELAY_MS = 350;
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
 app.innerHTML = `
-  <h1 class="sinsan-title">神算 Sinsan</h1>
-  <div class="sinsan-controls">
-    <label>Play as
-      <select id="human-side">
-        <option value="cho">Cho (초)</option>
-        <option value="han">Han (한)</option>
-      </select>
-    </label>
-    <label>Cho formation
-      <select id="setup-cho">${FORMATIONS.map((f) => `<option value="${f}">${FORMATION_LABELS[f]}</option>`).join('')}</select>
-    </label>
-    <label>Han formation
-      <select id="setup-han">${FORMATIONS.map((f) => `<option value="${f}">${FORMATION_LABELS[f]}</option>`).join('')}</select>
-    </label>
-  </div>
-  <div class="sinsan-layout">
-    <div class="sinsan-play">
-      <div class="sinsan-board-row">
-        <div class="eval-bar" title="Your winning chances as Sinsan sees them"><div class="eval-bar-fill"></div><span class="eval-bar-num"></span></div>
-        <div id="board"></div>
-      </div>
-      <div class="sinsan-controls">
-        <button id="pass-btn">Pass</button>
-        <button id="hint-btn" title="Ask Sinsan for the best move in your position">Hint</button>
-        <button id="threat-btn" title="Show what Sinsan would do if you passed">Threat</button>
-        <button id="resign-btn">Resign</button>
-        <button id="new-game-btn">New Game</button>
-      </div>
-      <div class="sinsan-status" id="status"></div>
-      <div class="sinsan-status" id="ai-info"></div>
-      <div id="engine-settings"></div>
+  <header class="site-header">
+    <a class="sinsan-title" href="#play">神算 Sinsan</a>
+    <nav class="site-nav">
+      <a href="#play" data-view="play">Play</a>
+      <a href="#about" data-view="about">How it works</a>
+      <a href="#progress" data-view="progress">Progress</a>
+      <a href="#rules" data-view="rules">Rules</a>
+    </nav>
+  </header>
+  <section class="view" id="view-play">
+    <div class="sinsan-controls">
+      <label>Play as
+        <select id="human-side">
+          <option value="cho">Cho (초)</option>
+          <option value="han">Han (한)</option>
+        </select>
+      </label>
+      <label>Cho formation
+        <select id="setup-cho">${FORMATIONS.map((f) => `<option value="${f}">${FORMATION_LABELS[f]}</option>`).join('')}</select>
+      </label>
+      <label>Han formation
+        <select id="setup-han">${FORMATIONS.map((f) => `<option value="${f}">${FORMATION_LABELS[f]}</option>`).join('')}</select>
+      </label>
     </div>
-    <aside id="analysis"></aside>
-  </div>
+    <div class="sinsan-layout">
+      <div class="sinsan-play">
+        <div class="sinsan-board-row">
+          <div class="eval-bar" title="Your winning chances as Sinsan sees them"><div class="eval-bar-fill"></div><span class="eval-bar-num"></span></div>
+          <div id="board"></div>
+        </div>
+        <div class="sinsan-controls">
+          <button id="pass-btn">Pass</button>
+          <button id="hint-btn" title="Ask Sinsan for the best move in your position">Hint</button>
+          <button id="threat-btn" title="Show what Sinsan would do if you passed">Threat</button>
+          <button id="resign-btn">Resign</button>
+          <button id="new-game-btn">New Game</button>
+        </div>
+        <div class="sinsan-status" id="status"></div>
+        <div class="sinsan-status" id="ai-info"></div>
+        <div id="engine-settings"></div>
+      </div>
+      <aside id="analysis"></aside>
+    </div>
+  </section>
+  <section class="view" id="view-about" hidden></section>
+  <section class="view" id="view-progress" hidden></section>
+  <section class="view" id="view-rules" hidden></section>
 `;
 
 const boardEl = document.querySelector<HTMLDivElement>('#board')!;
@@ -276,3 +290,24 @@ threatBtn.addEventListener('click', () => void showHint('threat'));
 humanSideSelect.addEventListener('change', newGame);
 
 newGame();
+
+// Simple hash routing between the game and the info pages; the game keeps running in the background.
+const VIEWS = ['play', 'about', 'progress', 'rules'] as const;
+type View = (typeof VIEWS)[number];
+const rendered = new Set<View>();
+
+function showView(): void {
+  const wanted = location.hash.slice(1) as View;
+  const view: View = VIEWS.includes(wanted) ? wanted : 'play';
+  for (const v of VIEWS) document.querySelector<HTMLElement>(`#view-${v}`)!.hidden = v !== view;
+  document.querySelectorAll<HTMLAnchorElement>('.site-nav a').forEach((a) => a.classList.toggle('active', a.dataset['view'] === view));
+  const el = document.querySelector<HTMLElement>(`#view-${view}`)!;
+  if (view === 'about' && !rendered.has(view)) renderAbout(el);
+  if (view === 'rules' && !rendered.has(view)) renderRules(el);
+  if (view === 'progress') void renderProgress(el); // live data: refresh on every visit
+  rendered.add(view);
+  if (view !== 'play') window.scrollTo(0, 0);
+}
+
+window.addEventListener('hashchange', showView);
+showView();

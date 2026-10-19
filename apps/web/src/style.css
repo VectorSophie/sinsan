@@ -36,10 +36,62 @@ body {
   box-sizing: border-box;
 }
 
+/* Header: wordmark and page tabs. */
+.site-header {
+  width: 100%;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  border-bottom: 1px solid color-mix(in srgb, var(--sinsan-ink) 12%, transparent);
+  padding-bottom: 0.6rem;
+}
+
 .sinsan-title {
   font-size: 1.5rem;
   letter-spacing: 0.05em;
   margin: 0;
+  color: var(--sinsan-ink);
+  text-decoration: none;
+  font-weight: 700;
+}
+
+.site-nav {
+  display: flex;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+}
+
+.site-nav a {
+  color: color-mix(in srgb, var(--sinsan-ink) 65%, transparent);
+  text-decoration: none;
+  padding: 0.3rem 0.7rem;
+  border-radius: 0.4rem;
+  font-size: 0.95rem;
+}
+
+.site-nav a:hover {
+  color: var(--sinsan-ink);
+  background: color-mix(in srgb, var(--sinsan-accent) 10%, transparent);
+}
+
+.site-nav a.active {
+  color: var(--sinsan-ink);
+  box-shadow: inset 0 -2px 0 var(--sinsan-accent);
+  border-radius: 0.4rem 0.4rem 0 0;
+}
+
+.view {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+
+.view[hidden] {
+  display: none;
 }
 
 .sinsan-controls {
@@ -589,4 +641,199 @@ body {
   justify-content: start;
   align-items: center;
   margin-bottom: 0.4rem;
+}
+
+/* Info pages: clean, numerical, understated. */
+.page {
+  max-width: 780px;
+  width: 100%;
+  line-height: 1.6;
+  font-size: 0.95rem;
+}
+
+.page h2 {
+  font-size: 1.4rem;
+  margin: 0.5rem 0 0.3rem;
+}
+
+.page h3 {
+  font-size: 1.05rem;
+  margin: 1.8rem 0 0.4rem;
+}
+
+.page .lead {
+  font-size: 1.02rem;
+  color: color-mix(in srgb, var(--sinsan-ink) 80%, transparent);
+}
+
+.page a {
+  color: var(--sinsan-accent);
+}
+
+.page code {
+  font-size: 0.88em;
+  padding: 0.05rem 0.3rem;
+  border-radius: 0.25rem;
+  background: color-mix(in srgb, var(--sinsan-ink) 8%, transparent);
+}
+
+.page-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+  margin: 0.4rem 0;
+}
+
+.page-table th,
+.page-table td {
+  text-align: left;
+  vertical-align: top;
+  padding: 0.4rem 0.6rem 0.4rem 0;
+  border-top: 1px solid color-mix(in srgb, var(--sinsan-ink) 12%, transparent);
+}
+
+.page-table th {
+  font-weight: 600;
+  border-top: none;
+  color: color-mix(in srgb, var(--sinsan-ink) 60%, transparent);
+}
+
+.page-dl dt {
+  font-weight: 600;
+  margin-top: 0.6rem;
+}
+
+.page-dl dd {
+  margin: 0.1rem 0 0 0;
+  color: color-mix(in srgb, var(--sinsan-ink) 85%, transparent);
+}
+
+.page-note {
+  font-size: 0.82rem;
+  color: color-mix(in srgb, var(--sinsan-ink) 60%, transparent);
+}
+
+.page-pre {
+  font-size: 0.8rem;
+  padding: 0.6rem 0.8rem;
+  border-radius: 0.4rem;
+  background: color-mix(in srgb, var(--sinsan-ink) 6%, transparent);
+  overflow-x: auto;
+}
+
+.flow {
+  display: flex;
+  align-items: stretch;
+  gap: 0.4rem;
+  margin: 1.2rem 0;
+  flex-wrap: wrap;
+}
+
+.flow-step {
+  flex: 1 1 140px;
+  border: 1px solid color-mix(in srgb, var(--sinsan-ink) 15%, transparent);
+  border-radius: 0.5rem;
+  padding: 0.6rem 0.7rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.flow-step span {
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: color-mix(in srgb, var(--sinsan-ink) 65%, transparent);
+}
+
+.flow-arrow {
+  align-self: center;
+  color: var(--sinsan-accent);
+}
+
+@media (max-width: 700px) {
+  .flow-arrow {
+    display: none;
+  }
+}
+
+.stat-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.6rem;
+  margin: 1rem 0;
+}
+
+.stat {
+  border: 1px solid color-mix(in srgb, var(--sinsan-ink) 14%, transparent);
+  border-radius: 0.5rem;
+  padding: 0.6rem 0.8rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.stat b {
+  font-size: 1.4rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat span {
+  font-size: 0.8rem;
+  color: color-mix(in srgb, var(--sinsan-ink) 60%, transparent);
+}
+
+.chart svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.ladder-grid {
+  stroke: color-mix(in srgb, var(--sinsan-ink) 10%, transparent);
+}
+
+.ladder-zero {
+  stroke: color-mix(in srgb, var(--sinsan-ink) 35%, transparent);
+}
+
+.ladder-tick,
+.ladder-val {
+  font-size: 11px;
+  fill: color-mix(in srgb, var(--sinsan-ink) 60%, transparent);
+  font-variant-numeric: tabular-nums;
+}
+
+.ladder-label {
+  font-size: 12px;
+  fill: var(--sinsan-ink);
+}
+
+.ladder-new {
+  font-weight: 700;
+}
+
+.ladder-bar {
+  fill: color-mix(in srgb, var(--sinsan-ink) 30%, transparent);
+}
+
+.ladder-bar-old {
+  fill: color-mix(in srgb, var(--sinsan-accent) 45%, transparent);
+}
+
+.ladder-bar-new {
+  fill: var(--sinsan-accent);
+}
+
+.rl-ci {
+  stroke: color-mix(in srgb, var(--sinsan-ink) 30%, transparent);
+  stroke-width: 2;
+}
+
+.rl-pt {
+  fill: var(--sinsan-bg);
+  stroke: var(--sinsan-accent);
+  stroke-width: 2;
+}
+
+.rl-promoted {
+  fill: var(--sinsan-accent);
 }
