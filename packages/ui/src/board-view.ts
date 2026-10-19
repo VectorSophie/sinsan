@@ -3,17 +3,30 @@ import type { Config } from 'chessgroundx/config.js';
 import type { Dests, Key } from 'chessgroundx/types.js';
 import { Notation } from 'chessgroundx/types.js';
 import { generateLegalMoves, isCheck, positionKey } from '@sinsan/rules';
-import type { Move, Position, Side } from '@sinsan/rules';
+import type { Move, Position, Side, Square } from '@sinsan/rules';
 import { squareToKey, keyToSquare } from './coords.ts';
 
 export interface BoardViewOptions {
+  /** The side shown at the bottom of the board. */
   readonly humanSide: Side;
+  /** Which sides a person moves for (defaults to just humanSide). Empty for bot-vs-bot games. */
+  readonly humanSides?: readonly Side[];
   readonly onHumanMove: (move: Move) => void;
   readonly animationDurationMs?: number;
 }
 
+/** An arrow drawn over the board (analysis display only - never affects the game). */
+export interface BoardArrow {
+  readonly from: Square;
+  readonly to: Square;
+  /** chessground brush name: green, red, blue, yellow, paleBlue, paleGreen, paleRed, paleGrey. */
+  readonly brush: string;
+  readonly lineWidth?: number;
+}
+
 export interface BoardView {
   sync(position: Position, lastMove?: Move, animationDurationMs?: number): void;
+  setArrows(arrows: readonly BoardArrow[]): void;
   destroy(): void;
 }
 
@@ -44,6 +57,11 @@ function colorOf(side: Side): 'white' | 'black' {
 export function createBoardView(container: HTMLElement, position: Position, options: BoardViewOptions): BoardView {
   container.classList.add('sinsan-board');
 
+  const humanSides = options.humanSides ?? [options.humanSide];
+  // Only the side to move can be dragged, and only when a person plays it.
+  const movableColor = (p: Position): 'white' | 'black' | undefined =>
+    humanSides.includes(p.sideToMove) ? colorOf(p.sideToMove) : undefined;
+
   const config: Config = {
     fen: boardFen(position),
     orientation: colorOf(options.humanSide),
@@ -57,7 +75,7 @@ export function createBoardView(container: HTMLElement, position: Position, opti
     highlight: { lastMove: true, check: true },
     movable: {
       free: false,
-      color: colorOf(options.humanSide),
+      color: movableColor(position),
       dests: legalDests(position),
       showDests: true,
       events: {
@@ -80,14 +98,26 @@ export function createBoardView(container: HTMLElement, position: Position, opti
       lastMove: lastMove && !lastMove.isPass ? [squareToKey(lastMove.from), squareToKey(lastMove.to)] : undefined,
       animation: animationDurationMs !== undefined ? { enabled: true, duration: animationDurationMs } : undefined,
       movable: {
-        color: colorOf(options.humanSide),
+        color: movableColor(next),
         dests: legalDests(next),
       },
     });
   }
 
+  function setArrows(arrows: readonly BoardArrow[]): void {
+    api.setAutoShapes(
+      arrows.map((a) => ({
+        orig: squareToKey(a.from),
+        dest: squareToKey(a.to),
+        brush: a.brush,
+        modifiers: a.lineWidth !== undefined ? { lineWidth: a.lineWidth } : undefined,
+      })),
+    );
+  }
+
   return {
     sync,
+    setArrows,
     destroy: () => api.destroy(),
   };
 }

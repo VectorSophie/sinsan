@@ -31,20 +31,17 @@ export type RuleProfileId = 'kja' | 'traditional' | 'modern' | 'casual';
 
 export interface RuleProfile {
   readonly id: RuleProfileId;
-  /** Whether reaching a bikjang position (both generals facing on an open file) can end the game. */
+  /** Bikjang standing in two consecutive positions ends the game (and while it stands, non-pass
+   * moves must break it). */
   readonly bikjangEndsGame: boolean;
-  /** What a bikjang resolves to, when bikjangEndsGame is true. */
-  readonly bikjangResult: 'draw';
+  /** Games ended by bikjang, double pass, the no-capture limit or plain repetition are decided by
+   * points (Fairy-Stockfish JANGGI_MATERIAL) instead of drawn. */
   readonly materialCountingAdjudication: boolean;
-  /** Number of times a position may repeat before the repetition rule triggers. */
+  /** The game ends when the current position has occurred this many times. */
   readonly repetitionLimit: number;
-  /** Plies without a capture before the no-capture limit triggers adjudication. */
+  /** Plies without a capture after which the game ends. */
   readonly noCaptureMoveLimit: number;
-  /**
-   * Points added to Han's material total before adjudication comparison, compensating Han for
-   * moving second. Commonly-cited value pending verification against an accessible official
-   * source (see docs/RESEARCH.md - kja.or.kr was inaccessible during Phase 0 research).
-   */
+  /** Points added to Han's total for point counting (compensation for moving second). */
   readonly hanCompensationPoints: number;
 }
 
@@ -64,18 +61,31 @@ export interface Position {
   /** Plies since the last capture; drives the no-capture move limit. */
   readonly noCapturePly: number;
   readonly moveNumber: number;
-  /** Serialized board+side keys for every position reached so far, oldest first; used for repetition detection. */
-  readonly positionHistory: ReadonlyArray<string>;
+  /** One record per position reached so far, oldest first; the last entry is this position. */
+  readonly history: ReadonlyArray<PlyRecord>;
+}
+
+/** Per-position facts needed for Fairy-Stockfish-style game endings (repetition, perpetual
+ * check, persistent bikjang, double pass). inCheck/bikjang are filled in lazily by applyMove for
+ * the root position, so building a Position never needs the rules module. */
+export interface PlyRecord {
+  readonly key: string;
+  /** The move that led to this position was a pass. */
+  readonly passed: boolean;
+  readonly inCheck?: boolean;
+  readonly bikjang?: boolean;
 }
 
 export type GameResultKind =
   | 'checkmate'
+  | 'stalemate'
   | 'resignation'
   | 'timeout'
   | 'bikjang'
+  | 'double-pass'
+  | 'move-limit'
   | 'repetition'
-  | 'material-adjudication'
-  | 'draw';
+  | 'perpetual-check';
 
 export interface GameResult {
   readonly winner: Side | null;

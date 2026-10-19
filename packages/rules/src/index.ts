@@ -9,6 +9,7 @@ export type {
   Move,
   Position,
   GameResultKind,
+  PlyRecord,
   GameResult,
   CreatePositionOptions,
   Clock,

@@ -70,9 +70,9 @@ export function createInitialPosition(options: CreatePositionOptions = {}): Posi
     setupHan,
     noCapturePly: 0,
     moveNumber: 1,
-    positionHistory: [],
+    history: [],
   };
-  return { ...position, positionHistory: [positionKey(position)] };
+  return { ...position, history: [{ key: positionKey(position), passed: false }] };
 }
 
 /** Board + side-to-move only - the portion relevant to repetition detection. Deliberately
@@ -151,9 +151,9 @@ export function parsePosition(serialized: string): Position {
     setupHan,
     noCapturePly,
     moveNumber,
-    positionHistory: [],
+    history: [],
   };
-  return { ...position, positionHistory: [positionKey(position)] };
+  return { ...position, history: [{ key: positionKey(position), passed: false }] };
 }
 
 export function pieceAt(position: Position, square: Square): Piece | null {

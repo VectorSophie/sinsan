@@ -1,47 +1,48 @@
 import type { RuleProfile, RuleProfileId } from './types.ts';
 
 /**
- * Maps onto Fairy-Stockfish's four hardcoded Janggi variant flavors (src/variant.cpp), confirmed
- * during Phase 0 research - see docs/RULES.md. `kja` is the project's default and is named for
- * intent (closest match to competitive play: bikjang + material-count adjudication both active),
- * not verified confirmation of the Korea Janggi Association's exact rules - that verification is
- * currently blocked by a site access issue, documented in docs/RESEARCH.md.
+ * The four Janggi flavors Fairy-Stockfish ships (src/variant.cpp), matched rule for rule:
+ *
+ * - `kja` = FSF `janggi`, the default and what pychess.org plays: bikjang, point counting,
+ *   threefold repetition, 100-ply no-capture limit. Verified against pyffish, including game
+ *   endings, by tests/differential/compare_engine.py (via the Rust engine, which this mirrors).
+ * - `traditional` = `janggitraditional`: as janggi, but endings are draws instead of point counts.
+ * - `modern` = `janggimodern` (Kakao-style): no bikjang, point counting, fourfold repetition,
+ *   200-ply limit. Known gap: FSF also makes some back-and-forth move repetitions illegal in this
+ *   variant (moveRepetitionIllegal), which is not implemented here.
+ * - `casual` = `janggicasual`: no bikjang, no point counting.
  */
 export const RULE_PROFILES: Record<RuleProfileId, RuleProfile> = {
   kja: {
     id: 'kja',
     bikjangEndsGame: true,
-    bikjangResult: 'draw',
     materialCountingAdjudication: true,
     repetitionLimit: 3,
-    noCaptureMoveLimit: 200,
+    noCaptureMoveLimit: 100,
     hanCompensationPoints: 1.5,
   },
   traditional: {
     id: 'traditional',
     bikjangEndsGame: true,
-    bikjangResult: 'draw',
     materialCountingAdjudication: false,
     repetitionLimit: 3,
-    noCaptureMoveLimit: 200,
+    noCaptureMoveLimit: 100,
     hanCompensationPoints: 1.5,
   },
   modern: {
     id: 'modern',
     bikjangEndsGame: false,
-    bikjangResult: 'draw',
     materialCountingAdjudication: true,
     repetitionLimit: 4,
-    noCaptureMoveLimit: 100,
+    noCaptureMoveLimit: 200,
     hanCompensationPoints: 1.5,
   },
   casual: {
     id: 'casual',
     bikjangEndsGame: false,
-    bikjangResult: 'draw',
     materialCountingAdjudication: false,
     repetitionLimit: 3,
-    noCaptureMoveLimit: 200,
+    noCaptureMoveLimit: 100,
     hanCompensationPoints: 1.5,
   },
 };

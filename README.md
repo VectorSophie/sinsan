@@ -6,7 +6,40 @@ rules, action space, and product identity rather than mechanically reskinned. Se
 `docs/RESEARCH.md` and `docs/PRODUCT_VISION.md` for why this project exists and what it is and
 isn't trying to be.
 
-## Status
+## Rebuild (2026-10, branch `rebuild`)
+
+The original pipeline (below) topped out about 900 Elo under Fairy-Stockfish at 64 nodes per
+move. A post-mortem found four causes: near-uniform policy labels (softmax over cp/800), a
+classical-evaluation teacher searching 5-6 plies, training positions that stopped at ply 60, and
+game-end rules that differed from the teacher's. The rebuild trains a large model first on GPUs,
+then distills browser students from it. Measured results live in `docs/REBUILD_LOG.md`.
+
+| Piece | Where | What it does |
+|---|---|---|
+| Rules core | `engine/` (Rust, Python bindings via maturin) | Fairy-Stockfish `janggi` rules exactly, including game endings; verified against pyffish and FSF perft |
+| Evaluation | `training/eval/` | Opening suite, paired matches, Fairy-Stockfish node ladder, Bradley-Terry ratings, SPRT, batched GPU arena |
+| Teacher data | `training/generate/teacher_games.py`, `training/data/shards.py` | FSF NNUE MultiPV-8 full games, raw candidate scores, outcomes and point margins |
+| Networks | `training/model/sinsan_net.py`, `training/train/` | KataGo-style CNN and smolgen-style transformer; policy, soft, opponent, Q, WDL, margin, moves-left heads |
+| Search | `engine/src/search.rs`, `training/uci_engine.py` | Batched PUCT with tree reuse and Gumbel root search; UCI engine |
+| Self-play | `training/selfplay/selfplay.py` | Gumbel self-play with playout-cap randomization |
+| Browser student candidate | `engine/src/alphabeta.rs`, `training/nnue/` | Alpha-beta with a small NNUE |
+
+Quick start (Linux, CUDA GPU):
+
+```sh
+./scripts/build-teacher.sh                                   # Fairy-Stockfish + Janggi NNUE
+cd training && uv sync
+uv run maturin develop --release -m ../engine/Cargo.toml --features python
+uv run python ../tests/differential/compare_engine.py --games 2000   # rules vs pyffish
+uv run python -m eval.ladder --pairs 200                             # rating scale
+uv run python -m generate.teacher_games --run nnue100k --positions 50000000
+uv run python -m data.shards --run nnue100k
+uv run python -m train.trainer --name cnn --data datasets/shards/nnue100k --steps 200000
+```
+
+The status list below describes the original project and is kept for history.
+
+## Status (original project)
 
 - **Phase 0 (research + documentation + repo scaffold): complete.** See `docs/` for the nine
   research/design documents and the license audit.

@@ -31,12 +31,30 @@ were consulted directly. Re-attempting kja.or.kr access is an open item in
 Fairy-Stockfish hardcodes four distinct Janggi rule flavors (confirmed by
 reading `src/variant.cpp`), which map directly onto a `RuleProfile` concept:
 
-| Profile id | Bikjang | Material-count adjudication | Repetition | Notes |
-|---|---|---|---|---|
-| `kja` (default) | Yes | Yes | standard | Maps to Fairy-Stockfish's `janggi` variant — closest match to competitive/tournament play, combining both bikjang and material-count adjudication. |
-| `traditional` | Draw on bikjang | No | standard | Maps to `janggitraditional`. |
-| `modern` | No | Yes | 4-fold illegal, 100-move rule | Maps to `janggimodern` — tuned to match the Kakao Janggi mobile app's ruleset, per Fairy-Stockfish's own variant naming. |
-| `casual` | No | No | standard | Maps to `janggicasual`. |
+| Profile id | FSF variant | Bikjang | Endings decided by points | Repetition | No-capture limit |
+|---|---|---|---|---|---|
+| `kja` (default) | `janggi` | Yes: must be broken or passed; standing for 2 positions ends the game | Yes | Threefold | 100 plies |
+| `traditional` | `janggitraditional` | Yes | No (endings are draws) | Threefold | 100 plies |
+| `modern` | `janggimodern` (Kakao-style) | No | Yes | Fourfold* | 200 plies |
+| `casual` | `janggicasual` | No | No | Threefold | 100 plies |
+
+\* FSF's `janggimodern` also makes certain back-and-forth move repetitions illegal
+(`moveRepetitionIllegal`); not implemented. Sinsan targets `janggi`, which pychess.org also plays.
+
+**Game endings under `kja` / FSF `janggi`** (read from `src/variant.cpp` and `src/position.cpp`,
+then verified by differential testing, see below):
+
+- No legal moves: the side to move loses (checkmate; stalemate is also scored as a loss, though
+  passing makes it practically unreachable).
+- Bikjang standing in two consecutive positions (the opponent passed instead of breaking it):
+  decided by points.
+- Two consecutive passes: decided by points.
+- 100 plies without a capture: decided by points.
+- Threefold repetition within the no-capture window: if one side gave check on every move of the
+  cycle, that side loses (perpetual check); otherwise decided by points.
+- Points: chariot 13, cannon 7, horse 5, elephant 3, guard 3, soldier 2. Cho wins only with a
+  margin of 2 or more (Han's 1.5 compensation), so a points decision is never a draw. Under
+  `janggi`, games are never drawn at all.
 
 Sinsan's rules engine (`packages/rules`) must accept a `RuleProfile` as an
 explicit input to `createInitialPosition(options)` and `getGameResult(...)`
@@ -137,6 +155,21 @@ legality/adjudication only — confirmed in `REFERENCES.md` that `pyffish`
 does not expose search/eval, so it's exactly suited to this role and nothing
 more). Mismatches auto-save a minimal repro under `artifacts/rule-mismatches/`
 per the spec (`tests/differential/generate-cases.ts` + `compare.py`).
+
+### Confirmed finding (2026-10): game endings differed from the teacher (fixed)
+
+The original differential test compared legal-move lists only, never game results, and the
+original profiles ended games differently from Fairy-Stockfish: bikjang was an immediate draw,
+the no-capture limit was 200 plies, repetition was a draw at the fourth occurrence, perpetual
+check was not handled, and passing while in check during bikjang was rejected. Labels, self-play
+and arena evaluation therefore followed different rules. The Rust engine (`engine/`) now
+implements FSF's janggi rules and is checked against pyffish by
+`tests/differential/compare_engine.py` (legal moves, FEN, check, and every game-end function at
+every ply of randomized games biased toward passes, repetitions, checks and quiet play: 845K+
+positions, 0 mismatches, every ending type observed) and by perft counts matching FSF's
+`go perft` (startpos depth 5: 35,243,995). `packages/rules` is checked against the Rust engine by
+`tests/differential/check-ts-results.ts` (500K+ positions, 0 mismatches); that check found the
+missing pass-in-check-during-bikjang rule.
 
 ### Confirmed finding: bikjang restricts move legality (fixed)
 

@@ -10,10 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@sinsan/action-space": "*",
-    "@sinsan/model-runtime": "*",
     "@sinsan/rules": "*",
-    "@sinsan/search": "*",
     "@sinsan/ui": "*",
     "chessgroundx": "^10.7.5"
   },

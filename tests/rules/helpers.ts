@@ -15,7 +15,6 @@ interface CustomPositionOptions {
   readonly sideToMove?: Side;
   readonly ruleProfile?: RuleProfileId;
   readonly noCapturePly?: number;
-  readonly extraHistory?: ReadonlyArray<string>;
 }
 
 /** Builds a minimal custom Position for testing a single piece/rule in isolation, without going
@@ -31,8 +30,7 @@ export function customPosition(options: CustomPositionOptions): Position {
     setupHan: 'masang-sangma',
     noCapturePly: options.noCapturePly ?? 0,
     moveNumber: 1,
-    positionHistory: [],
+    history: [],
   };
-  const history = [...(options.extraHistory ?? []), positionKey(base)];
-  return { ...base, positionHistory: history };
+  return { ...base, history: [{ key: positionKey(base), passed: false }] };
 }
