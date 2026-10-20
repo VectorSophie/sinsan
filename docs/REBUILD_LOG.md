@@ -105,3 +105,48 @@ Defaults kept; cpuct ~1.2 to be confirmed with a longer SPRT on the main net.
 
 `rl1` started from `p3-tf512x12` on both GPUs: Gumbel self-play (200/32 visits, p_full 0.25)
 produces ~35-40 recorded positions/s per GPU (about 3.5 h per 500K-per-GPU iteration).
+
+The first recipe (lr 2e-4, fixed steps) overfit: round 0 lost 217 Elo to its parent. The loop was
+reworked into continuous self-play workers (one per GPU in `runs/<run>/gpus.txt`, re-read every
+minute) and a trainer that runs once 1M new positions exist, mixing 75% self-play from the latest
+8M positions with 25% teacher data, at lr 1e-4 and steps = ceil(new × 4 / (2048 × 0.75)).
+Each candidate is gated against the current best at 128 visits, 200 pairs, promoted above 50%.
+
+| round | gate vs best (128 visits) | promoted |
+|---|---|---|
+| 0 | -217 [-258, -181] | (old recipe) |
+| 1 | -65 [-99, -32] | |
+| 2 | +38 [+7, +71] | yes |
+| 3-4 | -76, -40 | |
+| 5 | +33 [+1, +66] | yes |
+| 6 | 0 | |
+| 7 | +26 [-7, +59] | yes |
+| 8 | -19 | |
+| 9 | +23 [-12, +57] | yes |
+| 10 | +28 [-3, +59] | yes |
+| 11-12 | -10, -5 | |
+| 13 | +10 [-21, +42] | yes |
+| 14-15 | -14, -10 | |
+| 16 | +19 [-16, +54] | yes |
+
+Gates at 128 visits look nearly flat, but strength at 800 visits keeps climbing. Ladder checks
+(800 visits vs FSF NNUE 256K, 100 pairs; the 256K rung sits at about 2312):
+
+| net | score | ladder Elo |
+|---|---|---|
+| p3 (before RL) | | ~2250 |
+| round 2 | 63.0% | ~2404 |
+| round 9 | 64.0% | ~2412 (2363~2464); +51 [+18, +84] head-to-head vs p3 |
+| round 13 | 77.0% | ~2520 (2470~2580) |
+
+Web presets measured on the same ladder (results in `eval/results/preset-*.json`):
+
+| preset | match | ladder Elo |
+|---|---|---|
+| Casual (small net, 1 visit, temperature 1) | 1/200 vs FSF 64 nodes; 200/200 vs random | <= -729 |
+| Club (small net, 16 visits) | 60% vs FSF 1K | 70 (17~127) |
+| Strong (latest net, 64 visits) | 76% vs FSF 16K | ~1270 (1217~1333) |
+| Maximum (6400 visits) | 93/100 vs FSF 256K | ~2450+ (lower bound, saturated) |
+
+Between 2026-10-19 and 10-20 the run used GPU 1 only (GPU 0 was busy with another job), which
+halved self-play to ~31 positions/s; edit `gpus.txt` to shrink or grow without a restart.
