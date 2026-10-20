@@ -1,12 +1,26 @@
 # 神算 Sinsan
 
-A Korean Janggi engine distilled into a browser-native model under 500KiB, in the spirit of
+A Korean Janggi engine in the AlphaZero style: a GPU-trained transformer with Monte Carlo tree
+search, plus a distilled version that runs entirely in the browser (the same Rust search compiled to
+WebAssembly, with a 10.7M-parameter int8 network of about 12 MB). It started in the spirit of
 [millionco/moka](https://github.com/millionco/moka)'s approach to Go - reimagined for Janggi's own
-rules, action space, and product identity rather than mechanically reskinned. See
+rules, action space, and product identity rather than mechanically reskinned. The original goal of a
+model under 500 KiB was dropped in the rebuild in favour of strength: the browser model is about
+12 MB and plays at roughly 1,600-1,900 on the Fairy-Stockfish ladder below. See
 `docs/RESEARCH.md` and `docs/PRODUCT_VISION.md` for why this project exists and what it is and
 isn't trying to be.
 
-## Rebuild (2026-10, branch `rebuild`)
+Play it on pychess.org as the BOT [`sin-san`](https://www.pychess.org/@/sin-san) (no login
+needed), or run the web app locally (below).
+
+| Player | Ladder Elo (0 = Fairy-Stockfish NNUE at 1K nodes) |
+|---|---|
+| Full RL net, 800 visits (GPU) | ~2,490-2,520 |
+| Browser student, 800 visits | ~1,875 |
+| Browser student, 400 visits (in-browser preset, pychess bot) | ~1,627 |
+| Original project's best (V3, 16 visits) | ~-1,424 |
+
+## Rebuild (2026-10, merged into `master`)
 
 The original pipeline (below) topped out about 900 Elo under Fairy-Stockfish at 64 nodes per
 move. A post-mortem found four causes: near-uniform policy labels (softmax over cp/800), a
@@ -53,7 +67,8 @@ cd .. && npm install && npm run dev --workspace=@sinsan/web  # http://localhost:
 Without the server the app plays with the browser engine only; the dev server sends the
 cross-origin isolation headers that let onnxruntime-web use several threads.
 
-The status list below describes the original project and is kept for history.
+The status list and project layout below describe the original project and are kept for history;
+the rebuild's pieces are in the table above.
 
 ## Status (original project)
 
