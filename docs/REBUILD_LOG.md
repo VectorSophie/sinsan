@@ -150,3 +150,33 @@ Web presets measured on the same ladder (results in `eval/results/preset-*.json`
 
 Between 2026-10-19 and 10-20 the run used GPU 1 only (GPU 0 was busy with another job), which
 halved self-play to ~31 positions/s; edit `gpus.txt` to shrink or grow without a restart.
+
+Round 16 (promoted at +19 over round 13) rated 73.5% vs FSF 256K at 800 visits, about 2489
+(2440~2546): level with round 13 within the error.
+
+## P6: browser engine (2026-10-20)
+
+The browser runs the same search as the server: `engine/src/wasm.rs` exposes one search tree to
+JavaScript (`WasmSearch`: collect leaves, apply logits and values), built to WebAssembly with
+`engine/build-wasm.sh` (148 KB, 57 KB gzipped). The network runs in onnxruntime-web inside a worker
+(`apps/web/src/student-worker.ts`), which answers the same requests as `/api/move` with the same
+reply, so the analysis panel, hints and presets work unchanged.
+
+Student: a 6-layer, d=192 transformer (6 heads, FFN x2, 10.7M parameters), trained from scratch
+for 30K steps of 2048 on 60% RL self-play (all 10.9M rl1 positions) and 40% teacher data, lr 1e-3
+(80 min on GPU 0 next to self-play). Validation top-1 40.2%, value accuracy 84.1% (35M net: 41.2%,
+83.2%). CPU candidates benchmarked through onnxruntime before training: d=192x6 ran ~130 evals/s
+single-threaded, d=256x8 ~40.
+
+Export (`training/export/export_onnx.py`): fp32 ONNX matches PyTorch exactly; int8 dynamic
+quantization of the MatMuls makes it 12 MB with policy KL 0.002 and value error 0.02 on validation
+positions. In play the int8 file scored 57/100 against its PyTorch original at 64 visits
+(+49 [-16, +117]), so quantization costs nothing measurable. `net_arena` plays `.onnx` files on
+the CPU through onnxruntime (`OnnxEvaluator`), so the browser model is rated from the exact file.
+
+| player | match | ladder Elo |
+|---|---|---|
+| student, PyTorch, 800 visits | 64.5% vs FSF 64K | ~1875 (1822~1933) |
+
+In headless Chromium with cross-origin isolation the int8 student searches ~350 visits/s (400
+visits in about a second); single-threaded, without the COOP/COEP headers, about 80 visits/s.
