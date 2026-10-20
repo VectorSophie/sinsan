@@ -195,3 +195,39 @@ bot's mistakes into `runs/pychess/bot_mistakes.jsonl`.
 
 First games (5+3): beat a human by checkmate in 44 plies (the reviewer agreed with 18 of the bot's
 22 moves and found no bot mistakes); a second opponent abandoned at -500 cp.
+
+## P7: human-scale strength (2026-10-20)
+
+Data: the PyChess Janggi game archive (451,932 games, 2020 to Oct 2026), published by the PyChess
+maintainer at github.com/gbtami/pychess-variants-games (release "pychess-janggi-games"). Thanks to
+PyChess (pychess.org). Moves decode with PyChess's `compress.py` scheme; replaying 3,000 checkmate
+games with `sinsan_engine` reproduced the recorded winner in 2,997. Most games are against PyChess's
+built-in AI and most players are anonymous or provisional: only 17 players with an established
+rating (1,356-2,001) have usable games.
+
+Method 1, PyChess AI levels as anchors (`fsf:level:<n>` in `net_arena`, settings from
+gbtami/fairyfishnet: Skill Level, depth and move time per level). Ladder placement, 100 games each:
+
+| level | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
+|---|---|---|---|---|---|---|---|---|
+| ladder Elo | -1078 | -841 | -673 | -512 | -108 | ~849 | ~1855 | ~2575 |
+| vs established humans (<=10 games per player) | ~1663 | ~1663 | ~1886 | ~2129 | ~2018 | 10-0 | 10-0 | 16-8* |
+
+*one player played 217 of 228 rated-human games against level 8 and won most of them (a repeatable
+line against the deterministic level); capped, the rest are 1-4 players per level. Levels 4-5 already
+perform at about 2,000-2,100 against PyChess players while sitting 500-1,000 points below our
+ladder's zero; the browser preset (ladder ~1627) sits between levels 6 and 7.
+
+Method 2, move quality (`eval/human_rating.py`): Fairy-Stockfish NNUE at 100K nodes scores every
+move of the 17 established players (13,172 positions, <=40 games each) by the win chance it gives
+away (P(win) = sigmoid(cp/105)). Players lose 2.8-9.1% per move; rating = 816 - 303 ln(loss) fits
+them. Sinsan's browser level (student, 400 visits) on the same positions loses 1.09% and matches
+Fairy-Stockfish's move 58% of the time: estimate ~2,186 on the PyChess scale (90% bootstrap over
+players 1,959-2,475). It is an extrapolation: Sinsan's loss is well below every human's.
+
+Method 3, live games as `sin-san`: 4 wins, no opponent with an established rating yet.
+
+Conclusion: the browser level is stronger than every established-rated Janggi player in the archive
+(top ~2,000-2,110); best single estimate ~2,200 on the PyChess scale, i.e. above the 1단 target
+(PyChess ~1,700-1,800) with a lower bound around 1,950. The GPU net (ladder ~2,500) is stronger
+still; no human data reaches that far.

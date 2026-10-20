@@ -20,6 +20,10 @@ needed), or run the web app locally (below).
 | Browser student, 400 visits (in-browser preset, pychess bot) | ~1,627 |
 | Original project's best (V3, 16 visits) | ~-1,424 |
 
+On a human scale, the browser level is estimated at about 2,200 on PyChess's Janggi rating scale
+(90% range ~1,950-2,475), above every established-rated player in PyChess's public game archive;
+see "P7: human-scale strength" in `docs/REBUILD_LOG.md`.
+
 ## Rebuild (2026-10, merged into `master`)
 
 The original pipeline (below) topped out about 900 Elo under Fairy-Stockfish at 64 nodes per
