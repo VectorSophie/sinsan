@@ -722,6 +722,11 @@ body {
   border-top: 1px solid color-mix(in srgb, var(--sinsan-ink) 12%, transparent);
 }
 
+.page-table td.span-cell {
+  text-align: center;
+  font-style: italic;
+}
+
 .page-table th {
   font-weight: 600;
   border-top: none;

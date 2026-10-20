@@ -10,9 +10,11 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@sinsan/engine-wasm": "*",
     "@sinsan/rules": "*",
     "@sinsan/ui": "*",
-    "chessgroundx": "^10.7.5"
+    "chessgroundx": "^10.7.5",
+    "onnxruntime-web": "^1.30.0"
   },
   "devDependencies": {
     "typescript": "~6.0.2",

@@ -36,3 +36,6 @@ training/datasets/shards/
 training/runs/
 training/eval/ladder-run.log
 training/datasets/selfplay/
+
+# secrets
+.env

@@ -105,3 +105,93 @@ Defaults kept; cpuct ~1.2 to be confirmed with a longer SPRT on the main net.
 
 `rl1` started from `p3-tf512x12` on both GPUs: Gumbel self-play (200/32 visits, p_full 0.25)
 produces ~35-40 recorded positions/s per GPU (about 3.5 h per 500K-per-GPU iteration).
+
+The first recipe (lr 2e-4, fixed steps) overfit: round 0 lost 217 Elo to its parent. The loop was
+reworked into continuous self-play workers (one per GPU in `runs/<run>/gpus.txt`, re-read every
+minute) and a trainer that runs once 1M new positions exist, mixing 75% self-play from the latest
+8M positions with 25% teacher data, at lr 1e-4 and steps = ceil(new × 4 / (2048 × 0.75)).
+Each candidate is gated against the current best at 128 visits, 200 pairs, promoted above 50%.
+
+| round | gate vs best (128 visits) | promoted |
+|---|---|---|
+| 0 | -217 [-258, -181] | (old recipe) |
+| 1 | -65 [-99, -32] | |
+| 2 | +38 [+7, +71] | yes |
+| 3-4 | -76, -40 | |
+| 5 | +33 [+1, +66] | yes |
+| 6 | 0 | |
+| 7 | +26 [-7, +59] | yes |
+| 8 | -19 | |
+| 9 | +23 [-12, +57] | yes |
+| 10 | +28 [-3, +59] | yes |
+| 11-12 | -10, -5 | |
+| 13 | +10 [-21, +42] | yes |
+| 14-15 | -14, -10 | |
+| 16 | +19 [-16, +54] | yes |
+
+Gates at 128 visits look nearly flat, but strength at 800 visits keeps climbing. Ladder checks
+(800 visits vs FSF NNUE 256K, 100 pairs; the 256K rung sits at about 2312):
+
+| net | score | ladder Elo |
+|---|---|---|
+| p3 (before RL) | | ~2250 |
+| round 2 | 63.0% | ~2404 |
+| round 9 | 64.0% | ~2412 (2363~2464); +51 [+18, +84] head-to-head vs p3 |
+| round 13 | 77.0% | ~2520 (2470~2580) |
+
+Web presets measured on the same ladder (results in `eval/results/preset-*.json`):
+
+| preset | match | ladder Elo |
+|---|---|---|
+| Casual (small net, 1 visit, temperature 1) | 1/200 vs FSF 64 nodes; 200/200 vs random | <= -1256 |
+| Club (small net, 16 visits) | 60% vs FSF 1K | 70 (17~127) |
+| Strong (latest net, 64 visits) | 76% vs FSF 16K | ~1398 (1346~1460) |
+| Maximum (6400 visits) | 93/100 vs FSF 256K | ~2761 (2658~2988) |
+
+Between 2026-10-19 and 10-20 the run used GPU 1 only (GPU 0 was busy with another job), which
+halved self-play to ~31 positions/s; edit `gpus.txt` to shrink or grow without a restart.
+
+Round 16 (promoted at +19 over round 13) rated 73.5% vs FSF 256K at 800 visits, about 2489
+(2440~2546): level with round 13 within the error.
+
+## P6: browser engine (2026-10-20)
+
+The browser runs the same search as the server: `engine/src/wasm.rs` exposes one search tree to
+JavaScript (`WasmSearch`: collect leaves, apply logits and values), built to WebAssembly with
+`engine/build-wasm.sh` (148 KB, 57 KB gzipped). The network runs in onnxruntime-web inside a worker
+(`apps/web/src/student-worker.ts`), which answers the same requests as `/api/move` with the same
+reply, so the analysis panel, hints and presets work unchanged.
+
+Student: a 6-layer, d=192 transformer (6 heads, FFN x2, 10.7M parameters), trained from scratch
+for 30K steps of 2048 on 60% RL self-play (all 10.9M rl1 positions) and 40% teacher data, lr 1e-3
+(80 min on GPU 0 next to self-play). Validation top-1 40.2%, value accuracy 84.1% (35M net: 41.2%,
+83.2%). CPU candidates benchmarked through onnxruntime before training: d=192x6 ran ~130 evals/s
+single-threaded, d=256x8 ~40.
+
+Export (`training/export/export_onnx.py`): fp32 ONNX matches PyTorch exactly; int8 dynamic
+quantization of the MatMuls makes it 12 MB with policy KL 0.002 and value error 0.02 on validation
+positions. In play the int8 file scored 57/100 against its PyTorch original at 64 visits
+(+49 [-16, +117]), so quantization costs nothing measurable. `net_arena` plays `.onnx` files on
+the CPU through onnxruntime (`OnnxEvaluator`), so the browser model is rated from the exact file.
+
+| player | match | ladder Elo |
+|---|---|---|
+| student, PyTorch, 800 visits | 64.5% vs FSF 64K | ~1875 (1822~1933) |
+| In-browser preset: the int8 ONNX file, 400 visits | 68.5% vs FSF 32K | ~1627 (1573~1688) |
+
+In headless Chromium with cross-origin isolation the int8 student searches ~350 visits/s (400
+visits in about a second); single-threaded, without the COOP/COEP headers, about 80 visits/s.
+
+### pychess.org BOT (2026-10-20)
+
+`training/pychess_bot.py` plays as the BOT account `sin-san` (token in the gitignored `.env`) through
+pychess's Lichess-style BOT API. BOTs cannot create challenges there, and challenges to a BOT are
+always casual (the client forces rated off), so the bot has no pychess rating of its own; human
+strength has to come from results against challengers' ratings, which the bot records. It accepts
+Janggi clock games (base + 40 x increment >= 60 s), up to 3 at a time, plays the In-browser level
+(student, 400 visits) by default, and logs games and replayed results to `runs/pychess/`.
+`eval/review_pychess.py` reviews new games with the full RL net at 800 visits and collects the
+bot's mistakes into `runs/pychess/bot_mistakes.jsonl`.
+
+First games (5+3): beat a human by checkmate in 44 plies (the reviewer agreed with 18 of the bot's
+22 moves and found no bot mistakes); a second opponent abandoned at -500 cp.

@@ -1,0 +1,32 @@
+/* tslint:disable */
+/* eslint-disable */
+export const memory: WebAssembly.Memory;
+export const __wbg_wasmsearch_free: (a: number, b: number) => void;
+export const startFen: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+export const wasmsearch_actions: (a: number) => [number, number];
+export const wasmsearch_apply: (a: number, b: number, c: number, d: number, e: number) => [number, number];
+export const wasmsearch_bestMove: (a: number) => [number, number];
+export const wasmsearch_boards: (a: number) => [number, number];
+export const wasmsearch_collect: (a: number, b: number) => number;
+export const wasmsearch_depthStats: (a: number) => [number, number];
+export const wasmsearch_dumpTree: (a: number, b: number, c: number, d: number) => [number, number];
+export const wasmsearch_legalMoves: (a: number) => [number, number];
+export const wasmsearch_new: (a: number, b: number, c: number) => number;
+export const wasmsearch_offsets: (a: number) => [number, number];
+export const wasmsearch_principalVariation: (a: number, b: number) => [number, number];
+export const wasmsearch_reset: (a: number) => void;
+export const wasmsearch_rootChildren: (a: number) => [number, number];
+export const wasmsearch_rootExpanded: (a: number) => number;
+export const wasmsearch_rootNetValue: (a: number) => number;
+export const wasmsearch_rootValue: (a: number) => number;
+export const wasmsearch_rootVisits: (a: number) => number;
+export const wasmsearch_scalars: (a: number) => [number, number];
+export const wasmsearch_setPosition: (a: number, b: number, c: number, d: number, e: number) => [number, number];
+export const __wbindgen_malloc: (a: number, b: number) => number;
+export const __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
+export const __wbindgen_externrefs: WebAssembly.Table;
+export const __externref_table_dealloc: (a: number) => void;
+export const __wbindgen_free: (a: number, b: number, c: number) => void;
+export const __externref_drop_slice: (a: number, b: number) => void;
+export const __externref_table_alloc: () => number;
+export const __wbindgen_start: () => void;

@@ -28,6 +28,8 @@ mod tables;
 mod python;
 #[cfg(feature = "python")]
 mod python_search;
+#[cfg(feature = "wasm")]
+mod wasm;
 
 pub use action::{decode_action, encode_move, ACTION_SPACE_SIZE, PASS_ACTION, TEMPLATE_COUNT};
 pub use board::{Board, Formation, Move, Piece, PieceKind, Side};

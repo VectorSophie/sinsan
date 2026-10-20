@@ -1,0 +1,11 @@
+{
+  "name": "@sinsan/engine-wasm",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-or-later",
+  "description": "The Rust engine (rules, input encoding, MCTS) compiled to WebAssembly; rebuild with engine/build-wasm.sh.",
+  "exports": {
+    ".": "./pkg/sinsan_engine.js"
+  }
+}

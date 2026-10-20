@@ -9,9 +9,11 @@ import {
 import type { Formation, GameResult, Move, Position, Side } from '@sinsan/rules';
 import { createBoardView } from '@sinsan/ui';
 import { createAnalysisPanel, moveToUci } from './analysis-panel.ts';
-import { createEngineSettings, PRESETS, presetSettings, requestFieldsFor } from './engine-settings.ts';
-import { renderAbout, renderProgress, renderRules } from './pages.ts';
+import { createEngineSettings, PRESETS, presetSettings, requestFieldsFor, serverDown } from './engine-settings.ts';
+import { fetchProgress, renderAbout, renderProgress, renderRules } from './pages.ts';
 import { mountNetworkViz } from './network-viz.ts';
+import { studentMove } from './student-client.ts';
+import type { StudentRequest } from './student-worker.ts';
 import type { FsfInfo, ServerAnalysis } from './analysis-panel.ts';
 import type { BoardView } from '@sinsan/ui';
 
@@ -225,8 +227,16 @@ async function post<T>(path: string, body: object): Promise<T> {
   return reply;
 }
 
+/** Sinsan's search: the in-browser student when the chosen network is "browser", else the GPU server. */
+function searchMove(body: { moves: string[] } & Record<string, unknown>): Promise<ServerAnalysis> {
+  if (body['net'] === 'browser') return studentMove<ServerAnalysis>({ ...gameSetup, ...body } as StudentRequest);
+  return post<ServerAnalysis>('/api/move', body);
+}
+
 function sinsanFields(id: PlayerId): Record<string, number | string> {
-  return id === 'sinsan:custom' ? engineSettings.requestFields() : requestFieldsFor(presetSettings(id.slice('sinsan:'.length)));
+  const f = id === 'sinsan:custom' ? engineSettings.requestFields() : requestFieldsFor(presetSettings(id.slice('sinsan:'.length)));
+  if (serverDown) f['net'] = 'browser'; // no GPU server: every Sinsan plays with the in-browser network
+  return f;
 }
 
 /** Asks the side to move's bot for its move and records its analysis. */
@@ -243,7 +253,7 @@ async function botMove(current: Position, side: Side): Promise<Move> {
     aiInfoEl.textContent = `${names[side]}: depth ${info.depth}, ${info.nodes.toLocaleString()} nodes, ${info.ms.toFixed(0)}ms`;
     return move;
   }
-  const reply = await post<ServerAnalysis>('/api/move', { moves: uciMoves, ...sinsanFields(id) });
+  const reply = await searchMove({ moves: uciMoves, ...sinsanFields(id) });
   const move = legal.find((m) => moveToUci(m, current) === reply.move);
   if (!move) throw new Error(`server returned illegal move ${reply.move}`);
   panel.addAnalysis(ply, current, reply);
@@ -298,11 +308,11 @@ async function showHint(kind: 'hint' | 'threat'): Promise<void> {
   try {
     const fields = { ...engineSettings.requestFields(), temperature: 0 };
     if (kind === 'hint') {
-      const reply = await post<ServerAnalysis>('/api/move', { moves: uciMoves, ...fields });
+      const reply = await searchMove({ moves: uciMoves, ...fields });
       if (id === gameId) panel.showHint('hint', position, reply);
     } else {
       const afterPass = applyMove(position, pass!);
-      const reply = await post<ServerAnalysis>('/api/move', { moves: [...uciMoves, moveToUci(pass!, position)], ...fields });
+      const reply = await searchMove({ moves: [...uciMoves, moveToUci(pass!, position)], ...fields });
       if (id === gameId) panel.showHint('threat', afterPass, reply);
     }
   } catch (error) {
@@ -390,8 +400,7 @@ newGame();
 /** Adds measured ladder ratings to the Sinsan preset options (FSF options carry theirs already). */
 async function labelPresetRatings(): Promise<void> {
   try {
-    const r = await fetch('/api/progress');
-    const data = (await r.json()) as { presets?: Record<string, { elo: number; bound: string; low?: number; high?: number }> };
+    const data = await fetchProgress<{ presets?: Record<string, { elo: number; bound: string; low?: number; high?: number }> }>();
     for (const select of Object.values(playerSelects)) {
       for (const opt of Array.from(select.options)) {
         const id = opt.value.startsWith('sinsan:') ? opt.value.slice('sinsan:'.length) : null;

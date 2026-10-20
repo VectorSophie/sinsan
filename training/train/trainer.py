@@ -106,6 +106,7 @@ def main() -> None:
     p.add_argument("--channels", type=int, default=256)
     p.add_argument("--blocks", type=int, default=15)
     p.add_argument("--heads", type=int, default=8)
+    p.add_argument("--ffn-mult", type=int, default=4)
     p.add_argument("--steps", type=int, default=100_000)
     p.add_argument("--batch", type=int, default=2048)
     p.add_argument("--lr", type=float, default=1e-3)
@@ -132,7 +133,7 @@ def main() -> None:
 
     train_roots = [d / "train" for d in args.data]
     val = fixed_sample([d / "val" for d in args.data], args.val_size)
-    cfg = NetConfig(arch=args.arch, channels=args.channels, blocks=args.blocks, heads=args.heads)
+    cfg = NetConfig(arch=args.arch, channels=args.channels, blocks=args.blocks, heads=args.heads, ffn_mult=args.ffn_mult)
     model = build_net(cfg).to(device)
     ema = copy.deepcopy(model).eval()
     for q in ema.parameters():
