@@ -29,6 +29,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+import sinsan_engine as se
 import torch
 
 from uci_engine import Engine, value_to_cp
@@ -128,12 +129,32 @@ def move_budget(remaining_ms: float, inc_ms: float, plies: int) -> float:
     return max(0.1, budget - 0.3)
 
 
+def game_result(record: dict) -> dict:
+    """pychess's gameEnd carries no result, so replay the moves: a finished position gives the winner
+    and reason; otherwise the game ended off the board (resignation, time, abort)."""
+    try:
+        game = se.Game(record["initialFen"])
+        for m in record["moves"]:
+            game.push(m)
+        res = game.result()
+    except Exception as e:  # noqa: BLE001
+        return {"winner": None, "reason": f"replay failed: {e!r}"}
+    if res is None:
+        return {"winner": None, "reason": "off the board (resign, time or abort)", "plies": len(record["moves"])}
+    winner, reason = res
+    color = "w" if record.get("white", "").lower() == "sin-san" else "b"
+    return {"winner": winner, "reason": reason, "plies": len(record["moves"]), "bot_won": winner == color}
+
+
 class Bot:
     def __init__(self, api: Api, searcher: Searcher, username: str, visits: int, level: str, max_games: int,
                  min_base_s: int) -> None:
         self.api, self.searcher, self.username = api, searcher, username
         self.visits, self.level, self.max_games, self.min_base_s = visits, level, max_games, min_base_s
         self.games: set[str] = set()
+        # Accepted challenges whose game has not started yet (Janggi waits for the human's setup),
+        # with the time accepted and the challenger's details.
+        self.pending: dict[str, tuple[float, dict]] = {}
         self.lock = threading.Lock()
         LOG_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -148,8 +169,13 @@ class Bot:
             reason = "timeControl"
         else:
             with self.lock:
-                if len(self.games) >= self.max_games:
+                now = time.time()
+                for gid in [g for g, (t, _) in self.pending.items() if now - t > 600]:
+                    del self.pending[gid]  # never started
+                if len(self.games) + len(self.pending) >= self.max_games:
                     reason = "later"
+                else:
+                    self.pending[cid] = (now, c.get("challenger", {}))
         log(f"challenge {cid} from {who}: {variant} {tc} rated={c.get('rated')} -> {'decline ' + reason if reason else 'accept'}")
         if reason:
             self.api.post(f"/api/challenge/{cid}/decline", {"reason": reason})
@@ -161,10 +187,12 @@ class Bot:
             if game_id in self.games:
                 return
             self.games.add(game_id)
-        threading.Thread(target=self.play, args=(game_id,), daemon=True, name=f"game-{game_id}").start()
+            challenger = self.pending.pop(game_id, (0, {}))[1]
+        threading.Thread(target=self.play, args=(game_id, challenger), daemon=True, name=f"game-{game_id}").start()
 
-    def play(self, game_id: str) -> None:
-        record: dict = {"id": game_id, "level": self.level, "start": time.strftime("%Y-%m-%d %H:%M:%S"), "moves": []}
+    def play(self, game_id: str, challenger: dict) -> None:
+        record: dict = {"id": game_id, "level": self.level, "start": time.strftime("%Y-%m-%d %H:%M:%S"), "moves": [],
+                        "challenger": challenger}
         try:
             fen, color, last_ply = None, None, -1
             for ev in self.api.stream(f"/api/bot/game/stream/{game_id}"):
@@ -197,6 +225,8 @@ class Bot:
                 log(f"game {game_id} ply {len(moves)}: {move} ({n} visits, cp {cp}, {secs:.2f}s of {budget:.1f}s)")
                 if self.api.post(f"/api/bot/game/{game_id}/move/{move}") is None:
                     last_ply = -1  # rejected: try again on the next state
+                else:
+                    record["moves"] = moves + [move]
         except Exception as e:  # noqa: BLE001 - one broken game must not stop the bot
             log(f"game {game_id} stream ended with {e!r}")
             record["error"] = repr(e)
@@ -204,9 +234,10 @@ class Bot:
             with self.lock:
                 self.games.discard(game_id)
             record["finish"] = time.strftime("%Y-%m-%d %H:%M:%S")
+            record["result"] = game_result(record)
             with open(LOG_DIR / "games.jsonl", "a") as f:
                 f.write(json.dumps(record) + "\n")
-            log(f"game {game_id} finished: {record.get('end', {}).get('result', '?')}")
+            log(f"game {game_id} finished: {record['result']}")
 
     def run(self) -> None:
         while True:
@@ -228,7 +259,7 @@ class Bot:
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--level", choices=sorted(LEVELS), default="browser")
-    p.add_argument("--max-games", type=int, default=1, help="games played at once")
+    p.add_argument("--max-games", type=int, default=3, help="games played at once")
     p.add_argument("--min-base", type=int, default=60, help="decline clocks shorter than this (base + 40 x increment, seconds)")
     p.add_argument("--device", default="cuda:0")
     p.add_argument("--check", action="store_true", help="only verify the token and the engine, then exit")
@@ -247,7 +278,9 @@ def main() -> None:
     searcher = Searcher(net, args.device if torch.cuda.is_available() else "cpu")
     searcher.start()
     start_fen = "rnba1abnr/4k4/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/4K4/RNBA1ABNR w - - 0 1"
-    move, n, cp, secs = searcher.think(start_fen, [], 5.0, visits)
+    # Warm up: compiling the network for the batch sizes a game uses takes several seconds.
+    for moves in ([], ["b1c3"], ["b1c3", "b10c8"]):
+        move, n, cp, secs = searcher.think(start_fen, moves, 30.0, visits)
     log(f"account {account['username']} (BOT), level {args.level}: {Path(net).parent.name} at {visits} visits; "
         f"test search {move} ({n} visits, {secs:.2f}s)")
     if args.check:

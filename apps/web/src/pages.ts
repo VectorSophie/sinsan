@@ -241,7 +241,7 @@ function classLegend(): string {
 
 /** Ladder ratings at 800 visits (docs/REBUILD_LOG.md). */
 const STRENGTH_GPU = '2,520 (round 13)';
-const STRENGTH_BROWSER = 'measuring…';
+const STRENGTH_BROWSER = '1,627 at 400 visits; 1,875 at 800';
 
 export function renderAbout(container: HTMLElement): void {
   container.innerHTML = `

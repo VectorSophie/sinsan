@@ -177,6 +177,21 @@ the CPU through onnxruntime (`OnnxEvaluator`), so the browser model is rated fro
 | player | match | ladder Elo |
 |---|---|---|
 | student, PyTorch, 800 visits | 64.5% vs FSF 64K | ~1875 (1822~1933) |
+| In-browser preset: the int8 ONNX file, 400 visits | 68.5% vs FSF 32K | ~1627 (1573~1688) |
 
 In headless Chromium with cross-origin isolation the int8 student searches ~350 visits/s (400
 visits in about a second); single-threaded, without the COOP/COEP headers, about 80 visits/s.
+
+### pychess.org BOT (2026-10-20)
+
+`training/pychess_bot.py` plays as the BOT account `sin-san` (token in the gitignored `.env`) through
+pychess's Lichess-style BOT API. BOTs cannot create challenges there, and challenges to a BOT are
+always casual (the client forces rated off), so the bot has no pychess rating of its own; human
+strength has to come from results against challengers' ratings, which the bot records. It accepts
+Janggi clock games (base + 40 x increment >= 60 s), up to 3 at a time, plays the In-browser level
+(student, 400 visits) by default, and logs games and replayed results to `runs/pychess/`.
+`eval/review_pychess.py` reviews new games with the full RL net at 800 visits and collects the
+bot's mistakes into `runs/pychess/bot_mistakes.jsonl`.
+
+First games (5+3): beat a human by checkmate in 44 plies (the reviewer agreed with 18 of the bot's
+22 moves and found no bot mistakes); a second opponent abandoned at -500 cp.
