@@ -241,7 +241,7 @@ class RandomPool:
 
 
 def play_match(a: str, b: str, pairs: int, device: torch.device, concurrency: int, fsf_threads: int,
-               out: Path | None = None, leaves_per_tree: int = 8) -> list[float]:
+               out: Path | None = None, leaves_per_tree: int = 8, opening_offset: int = 0) -> list[float]:
     openings = [json.loads(l) for l in OPENINGS.read_text().splitlines() if l.strip()]
     players: dict[str, object] = {}
     evaluators: dict = {}  # players sharing a checkpoint share one loaded model
@@ -264,7 +264,7 @@ def play_match(a: str, b: str, pairs: int, device: torch.device, concurrency: in
         nonlocal next_slot
         while queue and len(games) < concurrency:
             p, a_cho = queue.pop(0)
-            op = openings[p % len(openings)]
+            op = openings[(p + opening_offset) % len(openings)]
             g = se.Game(cho=op["cho"], han=op["han"])
             for m in op["moves"]:
                 g.push(m)
@@ -337,8 +337,10 @@ def main() -> None:
     parser.add_argument("--fsf-threads", type=int, default=64)
     parser.add_argument("--leaves", type=int, default=8)
     parser.add_argument("--out", type=Path, default=None)
+    parser.add_argument("--opening-offset", type=int, default=0,
+                        help="start at this opening of the suite (search is deterministic, so a repeat run needs new openings)")
     args = parser.parse_args()
-    play_match(args.a, args.b, args.pairs, torch.device(args.device), args.concurrency, args.fsf_threads, args.out, args.leaves)
+    play_match(args.a, args.b, args.pairs, torch.device(args.device), args.concurrency, args.fsf_threads, args.out, args.leaves, args.opening_offset)
 
 
 if __name__ == "__main__":
