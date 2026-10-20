@@ -338,6 +338,17 @@ on-policy refinement not yet), `apps/` (web: playable board implemented; arena n
 (unit, fixtures, model, differential all implemented; browser/Playwright not yet), `benchmarks/`
 (model inference latency), `assets/`, `docs/`, `scripts/`, `licenses/`.
 
+## Acknowledgements
+
+- **[PyChess](https://www.pychess.org)** ([gbtami/pychess-variants](https://github.com/gbtami/pychess-variants)):
+  the human Janggi games used to estimate Sinsan's strength on a human scale come from the PyChess
+  game archive the maintainer publishes ([gbtami/pychess-variants-games](https://github.com/gbtami/pychess-variants-games),
+  release "pychess-janggi-games"). The archive is used locally for analysis and is not redistributed
+  here. PyChess also hosts the `sin-san` BOT, and its AI-level settings
+  ([gbtami/fairyfishnet](https://github.com/gbtami/fairyfishnet)) are reproduced for rating anchors.
+- **[Fairy-Stockfish](https://github.com/fairy-stockfish/Fairy-Stockfish)**: the teacher engine, the
+  rules reference, and the analysis engine for the human-rating estimate.
+
 ## License
 
 Sinsan's own code is AGPL-3.0-or-later (`LICENSE`). Third-party code and assets retain their

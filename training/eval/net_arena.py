@@ -190,9 +190,20 @@ class NetPlayer:
 class FsfPool:
     """Fairy-Stockfish opponents: one engine per pool thread, created lazily."""
 
+    # pychess.org's AI levels 0-8 (gbtami/fairyfishnet constants.py): Skill Level, max depth and
+    # move time in ms for one thread; NNUE on. Spec "fsf:level:<n>" reproduces level n.
+    PYCHESS_SKILL = [-4, 0, 3, 6, 10, 14, 16, 18, 20]
+    PYCHESS_DEPTH = [1, 1, 1, 2, 3, 5, 8, 13, 22]
+    PYCHESS_MOVETIME = [50, 50, 100, 150, 200, 300, 400, 500, 1000]
+
     def __init__(self, spec: str, threads: int) -> None:
-        _, kind, nodes = spec.split(":")
-        self.nodes, self.nnue = int(nodes), kind == "nnue"
+        _, kind, n = spec.split(":")
+        if kind == "level":
+            lvl = int(n)
+            self.nnue, self.skill = True, self.PYCHESS_SKILL[lvl]
+            self.go = f"depth {self.PYCHESS_DEPTH[lvl]} movetime {self.PYCHESS_MOVETIME[lvl]}"
+        else:
+            self.nnue, self.skill, self.go = kind == "nnue", None, f"nodes {int(n)}"
         self.local = threading.local()
         self.pool = ThreadPoolExecutor(threads)
 
@@ -203,7 +214,10 @@ class FsfPool:
             engine = getattr(self.local, "engine", None)
             if engine is None:
                 engine = self.local.engine = fairy_stockfish(nnue=self.nnue)
-            info = engine.search(root, moves, f"nodes {self.nodes}")
+                if self.skill is not None:
+                    engine.send(f"setoption name Skill Level value {self.skill}")
+                    engine.ready()
+            info = engine.search(root, moves, self.go)
             if info.bestmove in legal:
                 return info.bestmove
             passes = [m for m in legal if m[: len(m) // 2] == m[len(m) // 2 :]]
