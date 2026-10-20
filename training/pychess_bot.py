@@ -23,6 +23,7 @@ import argparse
 import json
 import os
 import queue
+import re
 import threading
 import time
 import urllib.error
@@ -80,10 +81,11 @@ class Api:
         with urllib.request.urlopen(req, timeout=20) as r:
             return json.loads(r.read())
 
-    def stream(self, path: str):
-        """Yields parsed ndjson lines until the server closes the stream."""
+    def stream(self, path: str, timeout: float = 120):
+        """Yields parsed ndjson lines until the server closes the stream. The server pings idle
+        streams (every 6 s for games), so a read timeout means the connection silently died."""
         req = urllib.request.Request(SERVER + path, headers=self.headers)
-        with urllib.request.urlopen(req, timeout=120) as r:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
             for line in r:
                 line = line.strip()
                 if line:
@@ -146,6 +148,22 @@ def game_result(record: dict) -> dict:
     return {"winner": winner, "reason": reason, "plies": len(record["moves"]), "bot_won": winner == color}
 
 
+def page_result(game_id: str) -> dict | None:
+    """Result from the public game page (data-result / data-status), for games that ended off the
+    board: resignation (status 2), time (6), abandonment (7) or abort (0)."""
+    try:
+        req = urllib.request.Request(f"{SERVER}/{game_id}", headers={"User-Agent": "sinsan-bot"})
+        html = urllib.request.urlopen(req, timeout=20).read().decode("utf-8", "replace")
+    except Exception:  # noqa: BLE001
+        return None
+    res = re.search(r'data-result="([^"]*)"', html)
+    status = re.search(r'data-status="([^"]*)"', html)
+    if not res or res.group(1) not in ("1-0", "0-1"):
+        return {"winner": None, "reason": "aborted"} if status and status.group(1) == "0" else None
+    names = {"1": "checkmate", "2": "resign", "6": "time", "7": "abandon", "12": "variant end"}
+    return {"winner": "w" if res.group(1) == "1-0" else "b", "reason": names.get(status.group(1) if status else "", "other")}
+
+
 class Bot:
     def __init__(self, api: Api, searcher: Searcher, username: str, visits: int, level: str, max_games: int,
                  min_base_s: int) -> None:
@@ -193,48 +211,77 @@ class Bot:
     def play(self, game_id: str, challenger: dict) -> None:
         record: dict = {"id": game_id, "level": self.level, "start": time.strftime("%Y-%m-%d %H:%M:%S"), "moves": [],
                         "challenger": challenger}
+        fen, color, last_ply, ended, failures, announced = None, None, -1, False, 0, False
+        state: dict = {}
         try:
-            fen, color, last_ply = None, None, -1
-            for ev in self.api.stream(f"/api/bot/game/stream/{game_id}"):
-                kind = ev.get("type")
-                if kind == "gameFull":
-                    fen = ev["initialFen"] or None
-                    color = "w" if ev["white"]["name"].lower() == self.username.lower() else "b"
-                    record.update(white=ev["white"]["name"], black=ev["black"]["name"], initialFen=fen)
-                    log(f"game {game_id}: {ev['white']['name']} (Cho) vs {ev['black']['name']} (Han), we play {color}")
-                    state = ev["state"]
-                elif kind == "gameState":
-                    state = ev
-                elif kind == "gameEnd":
-                    record.update(end=ev)
-                    break
-                else:
-                    continue
-                if fen is None or state.get("status", "started") != "started":
-                    continue
-                moves = state["moves"].split() if state["moves"] else []
-                record["moves"] = moves
-                ours = (len(moves) % 2 == 0) == (color == "w")
-                if not ours or len(moves) == last_ply:
-                    continue
-                last_ply = len(moves)
-                remaining = state["wtime"] if color == "w" else state["btime"]
-                inc = state["winc"] if color == "w" else state["binc"]
-                budget = move_budget(float(remaining), float(inc) * (1000 if float(inc) < 100 else 1), len(moves))
-                move, n, cp, secs = self.searcher.think(fen, moves, budget, self.visits)
-                log(f"game {game_id} ply {len(moves)}: {move} ({n} visits, cp {cp}, {secs:.2f}s of {budget:.1f}s)")
-                if self.api.post(f"/api/bot/game/{game_id}/move/{move}") is None:
-                    last_ply = -1  # rejected: try again on the next state
-                else:
-                    record["moves"] = moves + [move]
-        except Exception as e:  # noqa: BLE001 - one broken game must not stop the bot
-            log(f"game {game_id} stream ended with {e!r}")
-            record["error"] = repr(e)
+            # Reconnect when the stream dies silently: on 2026-10-20 a game stream stopped delivering
+            # moves and the bot lost on time while winning. On reconnect the server resends gameFull.
+            while not ended and failures < 30:
+                try:
+                    for ev in self.api.stream(f"/api/bot/game/stream/{game_id}", timeout=30):
+                        failures = 0
+                        kind = ev.get("type")
+                        if kind == "gameFull":
+                            fen = ev["initialFen"] or None
+                            color = "w" if ev["white"]["name"].lower() == self.username.lower() else "b"
+                            record.update(white=ev["white"]["name"], black=ev["black"]["name"], initialFen=fen)
+                            if not announced:
+                                log(f"game {game_id}: {ev['white']['name']} (Cho) vs {ev['black']['name']} (Han), we play {color}")
+                                announced = True
+                            state = ev["state"]
+                            last_ply = -1  # (re)connected: check whose move it is
+                        elif kind == "gameState":
+                            state = ev
+                        elif kind == "gameEnd":
+                            record.update(end=ev)
+                            ended = True
+                            break
+                        else:
+                            continue
+                        if fen is None or state.get("status", "started") != "started":
+                            continue
+                        moves = state["moves"].split() if state["moves"] else []
+                        record["moves"] = moves
+                        ours = (len(moves) % 2 == 0) == (color == "w")
+                        if not ours or len(moves) == last_ply:
+                            continue
+                        last_ply = len(moves)
+                        remaining = state["wtime"] if color == "w" else state["btime"]
+                        inc = state["winc"] if color == "w" else state["binc"]
+                        budget = move_budget(float(remaining), float(inc) * (1000 if float(inc) < 100 else 1), len(moves))
+                        move, n, cp, secs = self.searcher.think(fen, moves, budget, self.visits)
+                        log(f"game {game_id} ply {len(moves)}: {move} ({n} visits, cp {cp}, {secs:.2f}s of {budget:.1f}s)")
+                        if self.api.post(f"/api/bot/game/{game_id}/move/{move}") is None:
+                            last_ply = -1  # rejected: try again on the next state
+                        else:
+                            record["moves"] = moves + [move]
+                    else:
+                        # The server closed the stream without gameEnd: finished, or a dropped connection.
+                        if page_result(game_id) is not None:
+                            ended = True
+                        else:
+                            failures += 1
+                            time.sleep(2)
+                except Exception as e:  # noqa: BLE001 - read timeouts and network errors: reconnect
+                    failures += 1
+                    log(f"game {game_id} stream problem ({e!r}); reconnecting ({failures})")
+                    if page_result(game_id) is not None:
+                        ended = True
+                    time.sleep(2)
+            if not ended:
+                record["error"] = "gave up reconnecting"
         finally:
             with self.lock:
                 self.games.discard(game_id)
             record["finish"] = time.strftime("%Y-%m-%d %H:%M:%S")
             record["result"] = game_result(record)
+            if record["result"].get("winner") is None:
+                time.sleep(3)  # give the server a moment to record the result
+                page = page_result(game_id)
+                if page:
+                    mine = "w" if record.get("white", "").lower() == self.username.lower() else "b"
+                    record["result"] = {**page, "plies": len(record["moves"]), "source": "game page",
+                                        **({"bot_won": page["winner"] == mine} if page["winner"] else {})}
             with open(LOG_DIR / "games.jsonl", "a") as f:
                 f.write(json.dumps(record) + "\n")
             log(f"game {game_id} finished: {record['result']}")
