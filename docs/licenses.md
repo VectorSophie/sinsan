@@ -33,6 +33,16 @@ for use.
 | Janggi piece set `Ka_wooden` (CSS family `janggihb`) | gbtami/pychess-variants (`static/images/pieces/janggi/Ka_wooden`), originally Kadagaden/chess-pieces | CC BY 4.0 (verified independently: per-folder `license.txt` in pychess-variants AND root `LICENSE.txt` in Kadagaden/chess-pieces) | Vendored piece set | Yes | Requires attribution to Kadagaden. **Do not** use the other 7 `janggihb` subfolders — `hanjablue` is actually GFDL (not CC-BY as pychess-variants' own summary table incorrectly claims), `intlblue` is marked "unknown," and `hanjagreen`/`intlgreen`/`intlwooden`/`intlkakao` have no license file at all. |
 | Board interaction library | gbtami/chessgroundx | GPL-3.0-or-later (verified: README + `LICENSE`) | UI dependency, vendored via package manager | Yes | GPLv3 §13 permits combination with AGPLv3. Actively maintained (last commit 2026-05-12), ~10KB gzipped, confirmed 9×10 support (used in production by pychess-variants for Janggi). |
 
+## Decisions
+
+- **2026-10-20 — published models trained from NNUE-teacher labels (risk accepted).** The browser
+  student (`apps/web/public/student/student.onnx`) and the GPU networks were trained on Fairy-Stockfish
+  NNUE search results (scores, chosen moves, outcomes) plus self-play. The NNUE net file itself is not
+  bundled or redistributed, and none of its weights are in Sinsan's models. Its license is still
+  unresolved (below); the owner chose to keep the browser student public anyway, judging the risk low
+  since engine evaluations are generally not treated as copyrightable. Training datasets stay
+  unpublished. Revisit if the contributor ("belzedar_") or Fairy-Stockfish clarifies terms.
+
 ## Open questions from Phase 0 research
 
 - **Janggi NNUE net license** — the single biggest open item. Options to
