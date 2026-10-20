@@ -143,10 +143,10 @@ Web presets measured on the same ladder (results in `eval/results/preset-*.json`
 
 | preset | match | ladder Elo |
 |---|---|---|
-| Casual (small net, 1 visit, temperature 1) | 1/200 vs FSF 64 nodes; 200/200 vs random | <= -729 |
+| Casual (small net, 1 visit, temperature 1) | 1/200 vs FSF 64 nodes; 200/200 vs random | <= -1256 |
 | Club (small net, 16 visits) | 60% vs FSF 1K | 70 (17~127) |
-| Strong (latest net, 64 visits) | 76% vs FSF 16K | ~1270 (1217~1333) |
-| Maximum (6400 visits) | 93/100 vs FSF 256K | ~2450+ (lower bound, saturated) |
+| Strong (latest net, 64 visits) | 76% vs FSF 16K | ~1398 (1346~1460) |
+| Maximum (6400 visits) | 93/100 vs FSF 256K | ~2761 (2658~2988) |
 
 Between 2026-10-19 and 10-20 the run used GPU 1 only (GPU 0 was busy with another job), which
 halved self-play to ~31 positions/s; edit `gpus.txt` to shrink or grow without a restart.

@@ -239,6 +239,10 @@ function classLegend(): string {
   return `<div class="legend-grid">${rows.map(([c, l, t]) => `<span class="ap-cls ap-cls-${c}">${l}</span><span>${t}</span>`).join('')}</div>`;
 }
 
+/** Ladder ratings at 800 visits (docs/REBUILD_LOG.md). */
+const STRENGTH_GPU = '2,520 (round 13)';
+const STRENGTH_BROWSER = 'measuring…';
+
 export function renderAbout(container: HTMLElement): void {
   container.innerHTML = `
   <article class="page">
@@ -278,11 +282,26 @@ export function renderAbout(container: HTMLElement): void {
     <p class="caption">The biggest fix: the original turned the teacher's scores into almost flat targets, so the network never learned
       which move was best. The new targets follow the teacher's real score gaps.</p>
 
+    <h3>4 · Two engines</h3>
+    <table class="page-table compact">
+      <thead><tr><th></th><th>GPU server</th><th>In your browser</th></tr></thead>
+      <tbody>
+        <tr><td>Network</td><td>12-layer transformer, 60M parameters</td><td>6-layer transformer, 10.7M parameters</td></tr>
+        <tr><td>Trained on</td><td>teacher games, then its own self-play</td><td>the big network's self-play and the teacher games</td></tr>
+        <tr><td>Runs on</td><td>PyTorch, CUDA</td><td>onnxruntime-web, int8 weights (12 MB)</td></tr>
+        <tr><td>Search</td><td colspan="2" class="span-cell">the same Rust code: compiled natively for the server, to WebAssembly for the browser</td></tr>
+        <tr><td>Speed</td><td>thousands of visits per second</td><td>a few hundred visits per second</td></tr>
+        <tr><td>Strength</td><td>${STRENGTH_GPU}</td><td>${STRENGTH_BROWSER}</td></tr>
+      </tbody>
+    </table>
+    <p class="caption">Pick "In-browser" as the network (or the In-browser preset) to play with no server at all; it is also used
+      automatically when no server is running.</p>
+
     <h3>Then vs now</h3>
     <div class="stat-row">
       <div class="stat"><b>−1,424</b><span>original V3, 16 visits</span></div>
-      <div class="stat"><b>+2,412</b><span>now, 800 visits</span></div>
-      <div class="stat"><b>~3,800</b><span>Elo gained</span></div>
+      <div class="stat"><b>2,520</b><span>now, 800 visits</span></div>
+      <div class="stat"><b>~3,900</b><span>Elo gained</span></div>
     </div>
     <table class="page-table compact">
       <thead><tr><th></th><th>Original</th><th>Now</th></tr></thead>
@@ -449,7 +468,7 @@ function ladderChart(data: Progress): SVGSVGElement {
   const s = svg('svg', { viewBox: `0 0 ${w} ${h}`, class: 'ladder-svg', role: 'img', 'aria-label': 'Strength ladder' });
   for (const tick of [-2000, -1000, 0, 1000, 2000]) {
     s.append(svg('line', { x1: x(tick), x2: x(tick), y1: 0, y2: h - 22, class: 'ladder-grid' }));
-    s.append(svg('text', { x: x(tick), y: h - 6, class: 'ladder-tick', 'text-anchor': 'middle' }, tick > 0 ? `+${tick}` : String(tick)));
+    s.append(svg('text', { x: x(tick), y: h - 6, class: 'ladder-tick', 'text-anchor': 'middle' }, String(tick)));
   }
   rows.forEach((r, i) => {
     const y = i * rowH + 4;
@@ -458,7 +477,7 @@ function ladderChart(data: Progress): SVGSVGElement {
       x: Math.min(x(0), x(r.elo)), y: y + 4, width: Math.max(2, Math.abs(x(r.elo) - x(0))), height: rowH - 8, rx: 2,
       class: r.kind === 'net' ? 'ladder-bar-new' : r.sinsan ? 'ladder-bar-old' : 'ladder-bar',
     }));
-    s.append(svg('text', { x: x(Math.max(r.elo, 0)) + 6, y: y + 14, class: 'ladder-val' }, `${r.elo > 0 ? '+' : ''}${r.elo}`));
+    s.append(svg('text', { x: x(Math.max(r.elo, 0)) + 6, y: y + 14, class: 'ladder-val' }, String(r.elo)));
   });
   return s;
 }
@@ -516,13 +535,25 @@ function curvesChart(data: Progress): SVGSVGElement {
   return s;
 }
 
-export async function renderProgress(container: HTMLElement): Promise<void> {
-  container.innerHTML = `<article class="page"><h2>Progress</h2><p class="lead">Loading…</p></article>`;
-  let data: Progress;
+/** Progress data: live from the GPU server, else the snapshot shipped with the app
+ * (`play_server.py --snapshot apps/web/public/progress.json`). */
+export async function fetchProgress<T>(): Promise<T & { snapshot?: string }> {
   try {
     const r = await fetch('/api/progress');
-    data = (await r.json()) as Progress;
-    if (!r.ok) throw new Error(JSON.stringify(data));
+    if (r.ok) return (await r.json()) as T & { snapshot?: string };
+  } catch {
+    // no server: fall through to the snapshot
+  }
+  const r = await fetch(`${import.meta.env.BASE_URL}progress.json`);
+  if (!r.ok) throw new Error(`no server and no progress snapshot (${r.status})`);
+  return (await r.json()) as T & { snapshot?: string };
+}
+
+export async function renderProgress(container: HTMLElement): Promise<void> {
+  container.innerHTML = `<article class="page"><h2>Progress</h2><p class="lead">Loading…</p></article>`;
+  let data: Progress & { snapshot?: string };
+  try {
+    data = await fetchProgress<Progress>();
   } catch (error) {
     container.innerHTML = `<article class="page"><h2>Progress</h2><p class="lead">Couldn't reach the server (${String(error)}).</p></article>`;
     return;
@@ -539,9 +570,9 @@ export async function renderProgress(container: HTMLElement): Promise<void> {
   container.innerHTML = `
   <article class="page">
     <h2>Progress</h2>
-    <p class="lead">Live from the training server. Elo against Fairy-Stockfish NNUE; 0 = 1,000 nodes per move. +200 ≈ winning 3 games in 4.</p>
+    <p class="lead">${data.snapshot ? `Snapshot from ${data.snapshot} (the training server isn't reachable).` : 'Live from the training server.'} Elo against Fairy-Stockfish NNUE; 0 = 1,000 nodes per move. 200 Elo apart ≈ the stronger side wins 3 games in 4.</p>
     <div class="stat-row">
-      <div class="stat"><b>${best ? `+${best.elo}` : '—'}</b><span>best rating (800 visits)</span></div>
+      <div class="stat"><b>${best ? best.elo : '—'}</b><span>best rating (800 visits)</span></div>
       <div class="stat"><b>${data.rl.length}</b><span>self-play rounds</span></div>
       <div class="stat"><b>${promoted}</b><span>promotions</span></div>
       <div class="stat"><b>50M</b><span>teacher positions</span></div>

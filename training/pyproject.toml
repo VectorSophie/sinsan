@@ -11,5 +11,11 @@ dependencies = [
   "maturin>=1.7",
 ]
 
+[project.optional-dependencies]
+export = [
+    "onnx>=1.23.2",
+    "onnxruntime>=1.31.0",
+]
+
 [tool.uv]
 package = false

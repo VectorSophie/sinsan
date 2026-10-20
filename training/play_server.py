@@ -61,14 +61,17 @@ RATED_NETS = [
     ("p3", "Transformer 60M, before RL"),
     ("rl1-it2", "After RL round 2"),
     ("rl1-it9", "After RL round 9"),
+    ("rl1-it13", "After RL round 13"),
+    ("rl1-it16", "After RL round 16"),
+    ("student", "In-browser student (10.7M)"),
 ]
 MAX_VISITS = 50_000
 MAX_TIME_MS = 60_000
 DEFAULTS = {"cpuct": 1.745, "fpu": 0.33, "ptemp": 1.36}
 # Fixed reference networks offered next to the live RL net (ladder ratings vs FSF, docs/REBUILD_LOG.md).
 REFERENCE_NETS = [
-    ("p3", "Before RL (60M supervised, ~+2250)", "runs/p3-tf512x12/ema-0052000.pt"),
-    ("small", "Small (35M, 9M positions, ~+1750)", "runs/abl-tf384x10/ema-0014000.pt"),
+    ("p3", "Before RL (60M supervised, ~2250)", "runs/p3-tf512x12/ema-0052000.pt"),
+    ("small", "Small (35M, 9M positions, ~1690)", "runs/abl-tf384x10/ema-0014000.pt"),
 ]
 
 
@@ -137,7 +140,7 @@ def progress() -> dict:
                     endings[k] = endings.get(k, 0) + v
     # Web-app presets rated by eval/results/preset-<id>-<opponent>.json; "full" is the latest rated RL net at 800 visits.
     presets = {}
-    for pid in ("casual", "club", "strong", "max"):
+    for pid in ("casual", "club", "strong", "max", "browser"):
         est = [match_rating(f, anchors) for f in sorted(RESULTS.glob(f"preset-{pid}-*.json"))]
         est = [e for e in est if e]
         # A near-0% or near-100% match only bounds the rating; use real estimates when there are any.
@@ -165,7 +168,14 @@ def main() -> None:
     p.add_argument("--device", default="cuda:0")
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8765)
+    p.add_argument("--snapshot", type=Path, default=None,
+                   help="write the progress page's data to this file (e.g. ../apps/web/public/progress.json) and exit")
     args = p.parse_args()
+    if args.snapshot:
+        data = progress()
+        data["snapshot"] = time.strftime("%Y-%m-%d %H:%M")
+        args.snapshot.write_text(json.dumps(data, ensure_ascii=False) + "\n")
+        return
 
     def nets() -> list[dict]:
         best = args.net_file.read_text().strip() if args.net_file else args.net

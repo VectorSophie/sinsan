@@ -22,7 +22,8 @@ then distills browser students from it. Measured results live in `docs/REBUILD_L
 | Networks | `training/model/sinsan_net.py`, `training/train/` | KataGo-style CNN and smolgen-style transformer; policy, soft, opponent, Q, WDL, margin, moves-left heads |
 | Search | `engine/src/search.rs`, `training/uci_engine.py` | Batched PUCT with tree reuse and Gumbel root search; UCI engine |
 | Self-play | `training/selfplay/selfplay.py` | Gumbel self-play with playout-cap randomization |
-| Browser student candidate | `engine/src/alphabeta.rs`, `training/nnue/` | Alpha-beta with a small NNUE |
+| Browser engine | `engine/src/wasm.rs`, `packages/engine-wasm`, `apps/web/src/student-worker.ts` | The same Rust search compiled to WebAssembly, evaluating a distilled 10.7M-parameter transformer (int8 ONNX, ~12MB) with onnxruntime-web in a worker |
+| Web app | `apps/web`, `training/play_server.py` | Play, analysis, bot-vs-bot, explainer pages; GPU nets through the local server, or the browser engine with no server |
 
 Quick start (Linux, CUDA GPU):
 
@@ -36,6 +37,21 @@ uv run python -m generate.teacher_games --run nnue100k --positions 50000000
 uv run python -m data.shards --run nnue100k
 uv run python -m train.trainer --name cnn --data datasets/shards/nnue100k --steps 200000
 ```
+
+Browser engine and web app:
+
+```sh
+rustup target add wasm32-unknown-unknown && cargo install wasm-bindgen-cli --version 0.2.129
+./engine/build-wasm.sh                                       # -> packages/engine-wasm/pkg
+cd training && uv sync --extra export && uv run python -m export.export_onnx --int8 \
+    --checkpoint runs/<student>/ema-<step>.pt --out ../apps/web/public/student/student.onnx
+uv run python play_server.py --net-file runs/rl1/best.txt    # optional: GPU nets on :8765
+uv run python play_server.py --snapshot ../apps/web/public/progress.json   # progress page without a server
+cd .. && npm install && npm run dev --workspace=@sinsan/web  # http://localhost:5173
+```
+
+Without the server the app plays with the browser engine only; the dev server sends the
+cross-origin isolation headers that let onnxruntime-web use several threads.
 
 The status list below describes the original project and is kept for history.
 

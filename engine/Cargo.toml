@@ -10,10 +10,12 @@ name = "sinsan_engine"
 crate-type = ["rlib", "cdylib"]
 
 [features]
-python = ["dep:pyo3"]
+python = ["dep:pyo3", "dep:rayon"]
+wasm = ["dep:wasm-bindgen"]
 
 [dependencies]
-rayon = "1.10"
+rayon = { version = "1.10", optional = true }
+wasm-bindgen = { version = "0.2", optional = true }
 pyo3 = { version = "0.23", features = ["extension-module", "abi3-py312"], optional = true }
 
 [profile.release]

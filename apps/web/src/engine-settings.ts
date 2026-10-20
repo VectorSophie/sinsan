@@ -28,7 +28,13 @@ export const PRESETS: { id: string; label: string; settings: Partial<EngineSetti
   { id: 'strong', label: 'Strong - latest net, 64 visits', settings: { net: 'best', limit: 'visits', visits: 64, temperature: 0, tempPlies: 0 } },
   { id: 'full', label: 'Full - latest net, 800 visits', settings: { net: 'best', limit: 'visits', visits: 800, temperature: 0, tempPlies: 0 } },
   { id: 'max', label: 'Maximum - latest net, 10 s per move', settings: { net: 'best', limit: 'time', timeMs: 10000, temperature: 0, tempPlies: 0 } },
+  { id: 'browser', label: 'In-browser - small net on your device, 400 visits', settings: { net: 'browser', limit: 'visits', visits: 400, temperature: 0, tempPlies: 0 } },
 ];
+
+export const BROWSER_NET_LABEL = 'In-browser (small net, no server)';
+
+/** True once /api/nets failed: only the in-browser network can play. */
+export let serverDown = false;
 
 const STORAGE_KEY = 'sinsan.engineSettings.v1';
 
@@ -174,17 +180,25 @@ export function createEngineSettings(container: HTMLElement, onChange: () => voi
   q<HTMLButtonElement>('.es-reset').addEventListener('click', () =>
     update({ cpuct: DEFAULTS.cpuct, fpu: DEFAULTS.fpu, ptemp: DEFAULTS.ptemp, util: DEFAULTS.util, temperature: 0, tempPlies: 0 }));
 
-  // Networks come from the server; keep the saved choice if it still exists.
-  netSelect.innerHTML = `<option value="best">Latest RL</option>`;
+  // GPU networks come from the server; the in-browser student is always available, and is the
+  // fallback when no server is running. Keep the saved choice if it still exists.
+  const browserOption = `<option value="browser">${BROWSER_NET_LABEL}</option>`;
+  netSelect.innerHTML = `<option value="best">Latest RL (GPU server)</option>${browserOption}`;
   fetch('/api/nets')
-    .then((r) => r.json())
+    .then((r) => {
+      if (!r.ok) throw new Error(String(r.status));
+      return r.json();
+    })
     .then((nets: { id: string; label: string }[]) => {
-      netSelect.innerHTML = nets.map((n) => `<option value="${n.id}">${n.label}</option>`).join('');
-      if (!nets.some((n) => n.id === s.net)) s.net = 'best';
+      netSelect.innerHTML = nets.map((n) => `<option value="${n.id}">${n.label}</option>`).join('') + browserOption;
+      if (s.net !== 'browser' && !nets.some((n) => n.id === s.net)) s.net = 'best';
       render();
     })
     .catch(() => {
-      // server not running: the AI menu's message explains it when a move is requested
+      netSelect.innerHTML = browserOption;
+      serverDown = true;
+      // The browser is slower than the GPU: halve the untouched default so moves stay quick.
+      if (s.net !== 'browser') update({ net: 'browser', ...(s.visits === DEFAULTS.visits ? { visits: 400 } : {}) });
     });
   render();
 

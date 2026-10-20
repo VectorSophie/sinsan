@@ -74,6 +74,33 @@ class NetEvaluator:
         return logits.cpu().numpy().tobytes(), values.cpu().numpy().tobytes()
 
 
+class OnnxEvaluator:
+    """Evaluates leaves with an exported browser model (export/export_onnx.py) on the CPU through
+    onnxruntime, i.e. exactly the file and arithmetic the web app's in-browser engine uses."""
+
+    def __init__(self, path: str, device: torch.device | None = None, margin_utility: float = 0.0, threads: int = 16) -> None:
+        import onnxruntime as ort
+
+        self.margin_utility = margin_utility
+        opts = ort.SessionOptions()
+        opts.intra_op_num_threads = threads
+        self.session = ort.InferenceSession(path, opts, providers=["CPUExecutionProvider"])
+
+    def __call__(self, batch: dict) -> tuple[bytes, bytes]:
+        n = batch["count"]
+        boards = np.frombuffer(batch["boards"], np.uint8).reshape(n, 4, 90)
+        scalars = np.frombuffer(batch["scalars"], np.float32).reshape(n, -1)
+        actions = np.frombuffer(batch["actions"], np.int32)
+        offsets = np.frombuffer(batch["offsets"], np.int32)
+        policy, wdl, margin = self.session.run(["policy", "wdl", "margin_mean"], {"boards": boards, "scalars": scalars})
+        rows = np.repeat(np.arange(n), np.diff(offsets))
+        logits = policy[rows, actions].astype(np.float32)
+        values = wdl[:, 0] - wdl[:, 2]
+        if self.margin_utility:
+            values = np.clip(values + self.margin_utility * np.tanh(margin / 20.0), -1, 1)
+        return logits.tobytes(), values.astype(np.float32).tobytes()
+
+
 class NetPlayer:
     """Spec: net:<checkpoint>:<visits>[:key=value,...] with keys cpuct, cpuct_base, cpuct_factor,
     fpu, fpu_root, ptemp (search policy temperature), util (margin utility), leaves, temp and tplies
@@ -95,7 +122,8 @@ class NetPlayer:
         if evaluators is not None and key in evaluators:
             self.evaluate = evaluators[key]
         else:
-            self.evaluate = NetEvaluator(path, device, margin_utility=util)
+            evaluator_cls = OnnxEvaluator if path.endswith(".onnx") else NetEvaluator
+            self.evaluate = evaluator_cls(path, device, margin_utility=util)
             if evaluators is not None:
                 evaluators[key] = self.evaluate
         params = {self.SEARCH_KEYS[k]: float(v) for k, v in options.items() if k in self.SEARCH_KEYS}
