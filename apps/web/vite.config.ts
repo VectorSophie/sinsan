@@ -4,12 +4,11 @@ import { defineConfig } from 'vite';
 const isolation = { 'Cross-Origin-Opener-Policy': 'same-origin', 'Cross-Origin-Embedder-Policy': 'require-corp' };
 
 // /api is forwarded to training/play_server.py (the full-size GPU checkpoint) when it is running.
+const proxy = { '/api': 'http://127.0.0.1:8765' };
+
 export default defineConfig({
-  server: {
-    proxy: { '/api': 'http://127.0.0.1:8765' },
-    headers: isolation,
-  },
-  preview: { headers: isolation },
+  server: { proxy, headers: isolation },
+  preview: { proxy, headers: isolation },
   worker: { format: 'es' },
   optimizeDeps: { exclude: ['onnxruntime-web', '@sinsan/engine-wasm'] },
 });

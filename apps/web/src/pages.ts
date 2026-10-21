@@ -240,8 +240,8 @@ function classLegend(): string {
 }
 
 /** Ladder ratings at 800 visits (docs/REBUILD_LOG.md). */
-const STRENGTH_GPU = '2,520 (round 13)';
-const STRENGTH_BROWSER = '~1,825 at 400 visits (v2, estimate)';
+const STRENGTH_GPU = '2,490 (round 18)';
+const STRENGTH_BROWSER = '1,850 at 400 visits';
 
 export function renderAbout(container: HTMLElement): void {
   container.innerHTML = `
@@ -300,7 +300,7 @@ export function renderAbout(container: HTMLElement): void {
     <h3>Then vs now</h3>
     <div class="stat-row">
       <div class="stat"><b>−1,424</b><span>original V3, 16 visits</span></div>
-      <div class="stat"><b>2,520</b><span>now, 800 visits</span></div>
+      <div class="stat"><b>2,490</b><span>now, 800 visits</span></div>
       <div class="stat"><b>~3,900</b><span>Elo gained</span></div>
     </div>
     <table class="page-table compact">
