@@ -60,14 +60,18 @@ function colorOf(side: Side): 'white' | 'black' {
   return side === 'cho' ? 'white' : 'black';
 }
 
-/** Arrow brushes by rank for each side's candidate moves: the most searched move is the most opaque. */
+/** Arrow brushes by rank for each side's options: shades of the side's colour, darkest for the most
+ * searched move, so the ranking reads at a glance. */
 export const RANK_BRUSHES = 5;
-const RANK_OPACITY = [1, 0.82, 0.66, 0.52, 0.4];
+const RANK_SHADES: Record<'cho' | 'han', string[]> = {
+  cho: ['#0b3a8c', '#1f6fe0', '#4f97f5', '#86bbf9', '#b9d8fc'],
+  han: ['#8a130b', '#d4301f', '#f0604e', '#f69486', '#fac2ba'],
+};
 function rankBrushes(): Record<string, { key: string; color: string; opacity: number; lineWidth: number }> {
   const out: Record<string, { key: string; color: string; opacity: number; lineWidth: number }> = {};
-  for (const [side, color] of [['cho', '#1d5bc4'], ['han', '#c42b1f']] as const) {
-    RANK_OPACITY.forEach((opacity, i) => {
-      out[`${side}${i}`] = { key: `${side[0]}r${i}`, color, opacity, lineWidth: 10 };
+  for (const side of ['cho', 'han'] as const) {
+    RANK_SHADES[side].forEach((color, i) => {
+      out[`${side}${i}`] = { key: `${side[0]}r${i}`, color, opacity: 0.92, lineWidth: 10 };
     });
   }
   return out;

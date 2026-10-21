@@ -426,12 +426,11 @@ export function createAnalysisPanel(container: HTMLElement, callbacks: PanelCall
   }
 
   /** On the board after a Sinsan move: the reply it expects (and, faintly, its follow-up). */
-  /** While inspecting a search: every candidate worth showing, most searched first, with its win chance.
-   * Otherwise the reply Sinsan expects (the board has already moved past the search). */
-  function defaultArrows(entry: Entry): BoardArrow[] {
-    if (!viewing) return arrowsFor(entry.analysis.pv.slice(1, 3), other(entry.side), true);
-    const total = Math.max(1, entry.analysis.candidates.reduce((a, c) => a + c.visits, 0));
-    return entry.analysis.candidates
+  /** Ranked arrows for one side's options: most searched first, shade and width by visit share,
+   * each with that side's win chance on its destination. */
+  function rankedArrows(options: { move: string; visits: number; q: number | null }[], mover: Side): BoardArrow[] {
+    const total = Math.max(1, options.reduce((a, c) => a + c.visits, 0));
+    return options
       .filter((c) => c.visits >= Math.max(1, total * 0.02))
       .sort((a, b) => b.visits - a.visits)
       .slice(0, RANK_BRUSHES)
@@ -440,11 +439,22 @@ export function createAnalysisPanel(container: HTMLElement, callbacks: PanelCall
         if (m.isPass) return [];
         const win = c.q === null ? null : (c.q + 1) / 2;
         return [{
-          from: m.from, to: m.to, brush: `${entry.side}${rank}`,
+          from: m.from, to: m.to, brush: `${mover}${rank}`,
           lineWidth: 4 + 9 * Math.sqrt(c.visits / total),
           label: { text: pct(win), color: winColor(win) },
         }];
       });
+  }
+
+  /** While inspecting a search: every candidate Sinsan weighed in that position. During play (the
+   * board is past Sinsan's move): the replies it considered to that move, with their chances. */
+  function defaultArrows(entry: Entry): BoardArrow[] {
+    if (viewing) return rankedArrows(entry.analysis.candidates, entry.side);
+    const rows = entry.analysis.tree;
+    const chosen = rows.findIndex((r) => r[0] === -1 && r[2] === entry.analysis.move);
+    const replies = rows.filter((r) => chosen >= 0 && r[0] === chosen).map((r) => ({ move: r[2], visits: r[3], q: r[4] }));
+    const arrows = rankedArrows(replies, other(entry.side));
+    return arrows.length ? arrows : arrowsFor(entry.analysis.pv.slice(1, 3), other(entry.side), true);
   }
 
   /** Show the position before entry `i` on the board with all of that search's candidates. */
