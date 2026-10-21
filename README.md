@@ -6,7 +6,7 @@ WebAssembly, with a 10.7M-parameter int8 network of about 12 MB). It started in 
 [millionco/moka](https://github.com/millionco/moka)'s approach to Go - reimagined for Janggi's own
 rules, action space, and product identity rather than mechanically reskinned. The original goal of a
 model under 500 KiB was dropped in the rebuild in favour of strength: the browser model is about
-12 MB and plays at roughly 1,600-1,900 on the Fairy-Stockfish ladder below. See
+12 MB and plays at about 1,850 on the Fairy-Stockfish ladder below. See
 `docs/RESEARCH.md` and `docs/PRODUCT_VISION.md` for why this project exists and what it is and
 isn't trying to be.
 
@@ -24,6 +24,44 @@ needed), or run the web app locally (below).
 On a human scale, the v1 browser level was estimated at about 2,200 on PyChess's Janggi rating scale
 (90% range ~1,950-2,475), above every established-rated player in PyChess's public game archive;
 see "P7: human-scale strength" in `docs/REBUILD_LOG.md`.
+
+## The web app
+
+`apps/web` is a board to play, watch and study Sinsan:
+
+- **Opponents**: you against Sinsan (in-browser student, or the GPU nets through
+  `training/play_server.py`), Sinsan against itself, or Fairy-Stockfish at fixed node counts, with
+  any of the four formations per side.
+- **Board**: material points for each side above and below the board (chariot 13, cannon 7,
+  horse 5, elephant and guard 3, soldier 2; Han's 1.5 for moving second shown separately) with the
+  pieces each side has captured; move counter, and the plies left before the no-capture limit once
+  it is close; undo (U), flip (F); players and formations are remembered.
+- **Sinsan's thinking**: after each of its moves the board shows the replies it expects and its
+  planned answers to the likeliest one, as arrows ranked by shade and width with each move's win
+  chance; Arrows (A) turns them off. The panel shows the win-chance bar, its top lines, candidate
+  moves, the search tree, a win-chance graph over the game and a move list rated by the opponent's
+  searches. Clicking a point on the graph (or a Sinsan move in the list) puts that position on the
+  board with every candidate it weighed; Esc returns to the game.
+- **Help while playing**: Hint (the move Sinsan would play for you) and Threat (what your opponent
+  would do if you passed).
+- **Pages**: how the engine works (with a live view of the network), training progress and
+  ratings, and the rules.
+
+## Playing Sinsan on PyChess
+
+The BOT [`sin-san`](https://www.pychess.org/@/sin-san) runs the in-browser level (student v2,
+400 visits). To play it, open its profile on pychess.org and send a Janggi challenge with a clock
+(at least about a minute per side; untimed and correspondence challenges are declined). PyChess
+picks the bot's formation; it plays up to three games at a time.
+
+What the games are for: Sinsan's strength on a human scale is estimated (see "P7: human-scale
+strength" in `docs/REBUILD_LOG.md`), not measured, because PyChess never rates games against
+BOTs. The estimate improves with games against players who have an established PyChess Janggi
+rating (not a provisional "1500?"), especially when the player scores some points: a score against
+a known rating is what pins the bot's level. Results are logged in
+`training/runs/pychess/games.jsonl`, reviewed with the GPU net by `eval/review_pychess.py`, and
+summarised in the log. So far (2026-10-21): 22 games, 16 wins, 2 losses, 4 aborted, all against
+provisional players, so no rating yet.
 
 ## Rebuild (2026-10, merged into `master`)
 
