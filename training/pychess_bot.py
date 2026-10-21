@@ -42,7 +42,7 @@ LOG_DIR = ROOT / "runs" / "pychess"
 
 # Strength levels, as the web app's presets (ladder ratings in docs/REBUILD_LOG.md).
 LEVELS = {
-    "browser": ("runs/student-tf192x6/ema-0030000.pt", 400),
+    "browser": ("runs/student-tf192x6-v2/ema-0060000.pt", 400),
     "strong": (None, 64),  # None: the current best RL net (runs/rl1/best.txt)
     "full": (None, 800),
 }

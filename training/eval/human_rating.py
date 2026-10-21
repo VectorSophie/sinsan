@@ -12,7 +12,7 @@ each, so no single player dominates.
 3. Per player, mean win-chance loss is regressed on rating (rating ~ a + b ln loss); Sinsan's mean
    loss is read off the fit. A bootstrap over players gives the interval.
 
-  uv run python -m eval.human_rating --net runs/student-tf192x6/ema-0030000.pt --visits 400
+  uv run python -m eval.human_rating --net runs/student-tf192x6-v2/ema-0060000.pt --visits 400
 Results go to eval/results/human-rating-*.json; the per-position analysis is cached.
 """
 

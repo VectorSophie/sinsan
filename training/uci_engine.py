@@ -23,6 +23,7 @@ from eval.net_arena import NetEvaluator
 
 STARTPOS = "rnba1abnr/4k4/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/4K4/RNBA1ABNR w - - 0 1"
 CP_SCALE = 105.0  # fitted on teacher games: P(win) = sigmoid(cp / 105)
+CPUCT = 1.2  # play-time exploration (docs/REBUILD_LOG.md); self-play keeps the engine default
 
 
 def value_to_cp(v: float) -> int:
@@ -34,7 +35,7 @@ class Engine:
     def __init__(self, net: str, device: str, visits: int, leaves: int) -> None:
         self.net_path, self.device, self.visits, self.leaves = net, device, visits, leaves
         self.evaluate: NetEvaluator | None = None
-        self.batch = se.SearchBatch()
+        self.batch = se.SearchBatch(cpuct=CPUCT)
         self.root: tuple[str, list[str]] | None = None
 
     def ensure_loaded(self) -> None:
