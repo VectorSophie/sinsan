@@ -54,7 +54,7 @@ from uci_engine import Engine, value_to_cp
 TRAINING_DIR = Path(__file__).resolve().parent
 RESULTS = TRAINING_DIR / "eval" / "results"
 RL_RUN = TRAINING_DIR / "runs" / "rl1"
-# Saved match files (eval/results/<prefix>-v800-fsf_*.json) for nets shown on the progress page.
+# Saved match files (eval/results/<prefix>-v<visits>-fsf_*.json, 800 visits unless given) for nets on the progress page.
 RATED_NETS = [
     ("abl-cnn256x15", "CNN 17M (9M positions)"),
     ("abl-tf384x10", "Transformer 35M (9M positions)"),
@@ -63,7 +63,9 @@ RATED_NETS = [
     ("rl1-it9", "After RL round 9"),
     ("rl1-it13", "After RL round 13"),
     ("rl1-it16", "After RL round 16"),
-    ("student", "In-browser student (10.7M)"),
+    ("rl1-it18", "After RL round 18 (final)"),
+    ("student", "In-browser student v1 (10.7M)"),
+    ("student-v2", "In-browser student v2 (10.7M, int8, 400 visits)", 400),
 ]
 MAX_VISITS = 50_000
 MAX_TIME_MS = 60_000
@@ -102,10 +104,11 @@ def progress() -> dict:
                                     f"{int(parts[2]):,} nodes")
         ladder.append({"id": spec, "label": label, "elo": round(elo), "kind": "fsf" if spec.startswith("fsf") else "other"})
     nets = []
-    for prefix, label in RATED_NETS:
-        estimates = [e for e in (match_rating(f, anchors) for f in sorted(RESULTS.glob(f"{prefix}-v800-fsf_*.json"))) if e]
+    for prefix, label, *rest in RATED_NETS:
+        visits = rest[0] if rest else 800
+        estimates = [e for e in (match_rating(f, anchors) for f in sorted(RESULTS.glob(f"{prefix}-v{visits}-fsf_*.json"))) if e]
         if estimates:
-            nets.append({"id": prefix, "label": label, "visits": 800, "matches": estimates,
+            nets.append({"id": prefix, "label": label, "visits": visits, "matches": estimates,
                          "elo": round(sum(e["elo"] for e in estimates) / len(estimates))})
     rl = []
     state_file = RL_RUN / "state.json"

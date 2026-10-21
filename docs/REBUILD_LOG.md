@@ -201,8 +201,22 @@ steps) at 400 visits on openings 300-499:
 
 At equal thinking time v2 is the stronger, and it keeps the v1 size (10.7M, int8 ONNX 12MB,
 top-1 agreement with fp32 82%). cpuct 1.2 adds +47 [+16, +79] on v2. v2 replaced v1 in the web app
-and the pychess bot. Estimated ladder rating at 400 visits ~1,825 (1,627 + 151 + 47); a direct
-measurement of the int8 file against FSF 32K and 64K is pending.
+and the pychess bot. The shipped int8 file at 400 visits and cpuct 1.2, rated directly:
+
+| Opponent | Score | Ladder Elo |
+|---|---|---|
+| FSF NNUE 64K nodes | 136/200 (68.0%), +131 [+79, +189] | 1,902 |
+| FSF NNUE 32K nodes | 171/200 (85.5%), +308 [+248, +389] | 1,800 |
+
+About 1,850, up from v1's 1,627 at the same visits (+225; the sum of the two head-to-head gains,
++198, was close).
+
+### RL stopped (2026-10-21)
+
+Rounds 17-21 gated at -2, +3 (promoted), -17, -7 and -30: no progress over the last eight rounds.
+Round 18, the final best net, rated 2,489 against FSF NNUE 256K nodes (147/200, +177 [+126, +237]),
+the same as round 16. The loop was stopped after round 21 to free both GPUs; it resumes from
+runs/rl1/state.json with the original command.
 
 ### pychess.org BOT (2026-10-20)
 
