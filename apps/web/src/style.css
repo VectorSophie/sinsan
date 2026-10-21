@@ -1403,3 +1403,44 @@ button.toggle[aria-pressed='true'] {
   background: color-mix(in srgb, var(--sinsan-accent) 22%, transparent);
   border-color: var(--sinsan-accent);
 }
+
+/* Toolbar under the board: icon buttons in groups (game, move, help and view). */
+.toolbar {
+  gap: 0.9rem;
+  align-items: center;
+}
+
+.tool-group {
+  display: flex;
+  gap: 0.3rem;
+  align-items: center;
+}
+
+.sinsan-controls button.tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  min-width: 2.5rem;
+  height: 2.5rem;
+  padding: 0 0.55rem;
+}
+
+.sinsan-controls button.tool svg {
+  width: 1.2rem;
+  height: 1.2rem;
+  flex: none;
+}
+
+.sinsan-controls button.tool-wide {
+  padding: 0 0.9rem;
+}
+
+.sinsan-controls button.tool:not(:disabled):hover {
+  background: color-mix(in srgb, var(--sinsan-accent) 14%, transparent);
+}
+
+.sinsan-controls button.tool-danger:not(:disabled):hover {
+  border-color: #b8382c;
+  color: #b8382c;
+}
