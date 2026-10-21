@@ -7,6 +7,7 @@
 import initEngine, { WasmSearch, startFen } from '@sinsan/engine-wasm';
 import * as ort from 'onnxruntime-web/wasm';
 import ortWasmUrl from 'onnxruntime-web/ort-wasm-simd-threaded.wasm?url';
+import ortMjsUrl from 'onnxruntime-web/ort-wasm-simd-threaded.mjs?url';
 
 const MODEL_URL = `${import.meta.env.BASE_URL}student/student.onnx`;
 const META_URL = `${import.meta.env.BASE_URL}student/student.json`;
@@ -43,7 +44,9 @@ let ready: Promise<void> | null = null;
 
 async function init(): Promise<void> {
   await initEngine();
-  ort.env.wasm.wasmPaths = { wasm: ortWasmUrl };
+  // Both files explicitly: without the .mjs, onnxruntime's thread workers would load this bundled
+  // worker script instead of its own glue code, and each one would start a second engine.
+  ort.env.wasm.wasmPaths = { wasm: ortWasmUrl, mjs: ortMjsUrl };
   // Threads need cross-origin isolation (COOP/COEP headers); without it onnxruntime runs on one.
   const threads = self.crossOriginIsolated ? Math.max(1, Math.min(8, (navigator.hardwareConcurrency || 4) - 1)) : 1;
   ort.env.wasm.numThreads = threads;
