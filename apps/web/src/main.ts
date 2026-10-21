@@ -5,10 +5,12 @@ import {
   generateLegalMoves,
   getGameResult,
   isCheck,
+  PIECE_VALUES,
+  ruleProfileFor,
 } from '@sinsan/rules';
-import type { Formation, GameResult, Move, Position, Side } from '@sinsan/rules';
+import type { Formation, GameResult, Move, PieceType, Position, Side } from '@sinsan/rules';
 import { createBoardView } from '@sinsan/ui';
-import { createAnalysisPanel, moveToUci } from './analysis-panel.ts';
+import { createAnalysisPanel, moveToUci, parseUci } from './analysis-panel.ts';
 import { createEngineSettings, PRESETS, presetSettings, requestFieldsFor, serverDown } from './engine-settings.ts';
 import { fetchProgress, renderAbout, renderProgress, renderRules } from './pages.ts';
 import { mountNetworkViz } from './network-viz.ts';
@@ -83,11 +85,15 @@ app.innerHTML = `
     </div>
     <div class="sinsan-layout">
       <div class="sinsan-play">
+        <div class="material-row" id="material-top"></div>
         <div class="sinsan-board-row">
           <div class="eval-bar" title="Winning chances of the side at the bottom"><div class="eval-bar-fill"></div><span class="eval-bar-num"></span></div>
           <div id="board"></div>
         </div>
+        <div class="material-row" id="material-bottom"></div>
         <div class="sinsan-controls">
+          <button id="undo-btn" title="Take back your last move (U)">Undo</button>
+          <button id="flip-btn" title="Turn the board around (F)">Flip</button>
           <button id="pass-btn">Pass</button>
           <button id="hint-btn" title="Ask Sinsan for the best move in your position">Hint</button>
           <button id="threat-btn" title="Show what your opponent could do if you passed">Threat</button>
@@ -131,12 +137,22 @@ const stepBtn = $<HTMLButtonElement>('#step-btn');
 const paceSelect = $<HTMLSelectElement>('#pace');
 const evalBarFill = $<HTMLDivElement>('.eval-bar-fill');
 const evalBarNum = $<HTMLSpanElement>('.eval-bar-num');
+const undoBtn = $<HTMLButtonElement>('#undo-btn');
+const flipBtn = $<HTMLButtonElement>('#flip-btn');
+const materialEls = { top: $<HTMLDivElement>('#material-top'), bottom: $<HTMLDivElement>('#material-bottom') };
+/** The analysis panel's latest win chance for `viewer` (the eval bar shows it for the bottom side). */
+let viewerWin: number | null = null;
+function renderEvalBar(): void {
+  const win = viewerWin === null ? null : bottom === viewer ? viewerWin : 1 - viewerWin;
+  // The bottom side's share fills from the bottom.
+  evalBarFill.style.height = `${(win ?? 0.5) * 100}%`;
+  evalBarNum.textContent = win === null ? '' : `${Math.round(win * 100)}`;
+}
 const panel = createAnalysisPanel($<HTMLElement>('#analysis'), {
   onArrows: (arrows) => boardView?.setArrows(arrows),
   onEval: (win) => {
-    // The bottom side's share fills from the bottom.
-    evalBarFill.style.height = `${(win ?? 0.5) * 100}%`;
-    evalBarNum.textContent = win === null ? '' : `${Math.round(win * 100)}`;
+    viewerWin = win;
+    renderEvalBar();
   },
 });
 const engineSettings = createEngineSettings($<HTMLElement>('#engine-settings'), () => updateStatus());
@@ -145,7 +161,11 @@ let position: Position;
 let players: Record<Side, PlayerId> = { cho: 'human', han: 'sinsan:custom' };
 let names: Record<Side, string> = { cho: 'You', han: 'Sinsan' };
 let viewer: Side = 'cho';
+/** The side drawn at the bottom: the viewer unless the board was flipped. */
+let bottom: Side = 'cho';
 let boardView: BoardView;
+/** Every position of the current game, the start first; positions[i] is the one before move i. */
+let positions: Position[] = [];
 let gameOver = false;
 let gameId = 0; // bumps on every new game so late replies from a previous game are dropped
 let botTimer: ReturnType<typeof setTimeout> | undefined;
@@ -186,7 +206,67 @@ function resultText(result: GameResult): string {
   }
 }
 
+const PIECE_ORDER: PieceType[] = ['chariot', 'cannon', 'horse', 'elephant', 'guard', 'soldier'];
+const START_COUNT: Record<PieceType, number> = { chariot: 2, cannon: 2, horse: 2, elephant: 2, guard: 2, soldier: 5, general: 1 };
+const PIECE_ASSET: Record<PieceType, string> = {
+  chariot: 'chariot', cannon: 'cannon', horse: 'horse', elephant: 'elephant', guard: 'advisor', soldier: 'pawn', general: 'king',
+};
+const PIECE_NAME: Record<PieceType, string> = {
+  chariot: 'chariot', cannon: 'cannon', horse: 'horse', elephant: 'elephant', guard: 'guard', soldier: 'soldier', general: 'general',
+};
+
+/** Points on the board per side (Han's include its compensation), and the pieces each side has lost. */
+function material(p: Position): { points: Record<Side, number>; lost: Record<Side, PieceType[]> } {
+  const count: Record<Side, Partial<Record<PieceType, number>>> = { cho: {}, han: {} };
+  const points: Record<Side, number> = { cho: 0, han: ruleProfileFor(p.ruleProfile).hanCompensationPoints };
+  for (const piece of p.board) {
+    if (!piece) continue;
+    count[piece.side][piece.type] = (count[piece.side][piece.type] ?? 0) + 1;
+    points[piece.side] += PIECE_VALUES[piece.type];
+  }
+  const lost = { cho: [] as PieceType[], han: [] as PieceType[] };
+  for (const side of SIDES) {
+    for (const type of PIECE_ORDER) {
+      for (let i = count[side][type] ?? 0; i < START_COUNT[type]; i++) lost[side].push(type);
+    }
+  }
+  return { points, lost };
+}
+
+/** The strips above and below the board: each side's points and the enemy pieces it has taken. */
+function renderMaterial(): void {
+  const { points, lost } = material(position);
+  const hanBonus = ruleProfileFor(position.ruleProfile).hanCompensationPoints;
+  for (const [where, side] of [['top', other(bottom)], ['bottom', bottom]] as const) {
+    const enemy = other(side);
+    const lead = points[side] - points[enemy];
+    const color = enemy === 'cho' ? 'blue' : 'red';
+    const taken = lost[enemy].map((t) =>
+      `<img class="mat-piece" src="/assets/pieces/janggihb-ka-wooden/${color}_${PIECE_ASSET[t]}.svg" alt="${PIECE_NAME[t]}" title="${PIECE_NAME[t]} (${PIECE_VALUES[t]})">`).join('');
+    const pts = side === 'han' ? `${points.han - hanBonus} + ${hanBonus}` : String(points.cho);
+    materialEls[where].innerHTML =
+      `<span class="mat-name mat-${side}">${side === 'cho' ? 'Cho' : 'Han'} · ${names[side]}</span>` +
+      `<span class="mat-caps">${taken}</span>` +
+      `<span class="mat-points" title="Points on the board${side === 'han' ? ` (Han gets ${hanBonus} for moving second)` : ''}">${pts} pts</span>` +
+      (lead > 0 ? `<span class="mat-lead">+${lead}</span>` : '');
+  }
+}
+
+function other(side: Side): Side {
+  return side === 'cho' ? 'han' : 'cho';
+}
+
+/** The move to undo back to: the latest earlier position where a person was to move. */
+function undoTarget(): number | null {
+  for (let k = uciMoves.length - 1; k >= 0; k--) {
+    if (isHuman(positions[k]!.sideToMove)) return k;
+  }
+  return null;
+}
+
 function updateStatus(): void {
+  renderMaterial();
+  undoBtn.disabled = humanSides().length === 0 || undoTarget() === null;
   if (gameOver) return;
   const result = getGameResult(position);
   if (result) {
@@ -199,7 +279,10 @@ function updateStatus(): void {
   const side = position.sideToMove;
   const checkNote = isCheck(position) ? ' - check!' : '';
   const thinking = botBusy ? ' (thinking…)' : paused && !isHuman(side) ? ' (paused)' : '';
-  statusEl.textContent = `${side === 'cho' ? 'Cho' : 'Han'} (${names[side]}) to move${checkNote}${thinking}`;
+  // The no-capture count only matters near the limit, where the game is decided on points.
+  const limit = ruleProfileFor(position.ruleProfile).noCaptureMoveLimit;
+  const quiet = position.noCapturePly >= limit * 0.6 ? ` · ${limit - position.noCapturePly} plies left without a capture` : '';
+  statusEl.textContent = `Move ${Math.floor(uciMoves.length / 2) + 1} · ${side === 'cho' ? 'Cho' : 'Han'} (${names[side]}) to move${checkNote}${thinking}${quiet}`;
   const humanTurn = isHuman(side);
   passBtn.disabled = !humanTurn || isCheck(position);
   hintBtn.disabled = !humanTurn || hintBusy;
@@ -294,6 +377,7 @@ async function runBot(): Promise<void> {
   if (id !== gameId || gameOver) return; // a new game started (or someone resigned) while it was thinking
   uciMoves.push(moveToUci(move, position));
   position = applyMove(position, move);
+  positions.push(position);
   afterMove(move, true);
 }
 
@@ -329,6 +413,7 @@ function handleHumanMove(move: Move): void {
   panel.noteMove(uciMoves.length, position, move);
   uciMoves.push(moveToUci(move, position));
   position = applyMove(position, move);
+  positions.push(position);
   afterMove(move, false);
 }
 
@@ -344,12 +429,15 @@ function newGame(): void {
   if (names.cho === names.han) names = { cho: `${names.cho} (Cho)`, han: `${names.han} (Han)` };
   // A lone human sits at the bottom; otherwise Cho does.
   viewer = humanSides().length === 1 ? humanSides()[0]! : 'cho';
+  bottom = viewer;
   botControls.hidden = !botGame();
   aiInfoEl.textContent = '';
   uciMoves = [];
   panel.reset(names, viewer, humanSides());
   gameSetup = { cho: setupChoSelect.value as Formation, han: setupHanSelect.value as Formation };
   position = createInitialPosition({ setupCho: gameSetup.cho, setupHan: gameSetup.han });
+  positions = [position];
+  saveSetup();
   boardEl.innerHTML = '';
   boardView = createBoardView(boardEl, position, {
     humanSide: viewer,
@@ -369,6 +457,7 @@ passBtn.addEventListener('click', () => {
 
 resignBtn.addEventListener('click', () => {
   if (gameOver || !isHuman(position.sideToMove)) return;
+  if (!confirm('Resign this game?')) return;
   clearTimeout(botTimer);
   gameOver = true;
   const winner: Side = position.sideToMove === 'cho' ? 'han' : 'cho';
@@ -389,12 +478,88 @@ stepBtn.addEventListener('click', () => {
   void runBot();
 });
 
-newGameBtn.addEventListener('click', newGame);
+/** Takes back moves to the latest earlier position where a person was to move (cancels a pending bot reply). */
+function undo(): void {
+  const k = undoTarget();
+  if (k === null) return;
+  clearTimeout(botTimer);
+  gameId++; // drops the reply of a search still running for the position being taken back
+  botBusy = false;
+  hintBusy = false;
+  gameOver = false;
+  paused = false;
+  uciMoves = uciMoves.slice(0, k);
+  positions = positions.slice(0, k + 1);
+  position = positions[k]!;
+  panel.setWaiting(false);
+  panel.truncate(k);
+  aiInfoEl.textContent = '';
+  for (const b of [passBtn, hintBtn, threatBtn, pauseBtn, stepBtn]) b.disabled = false;
+  boardView.sync(position, k > 0 ? parseUci(uciMoves[k - 1]!) : undefined, 0);
+  updateStatus();
+}
+
+function flip(): void {
+  bottom = other(bottom);
+  boardView.setOrientation(bottom);
+  renderEvalBar();
+  renderMaterial();
+}
+
+/** Changing a player or formation starts a new game; ask first when a game with a person is under way. */
+function confirmNewGame(): boolean {
+  return gameOver || uciMoves.length < 4 || humanSides().length === 0 || confirm('Start a new game? The current one will be lost.');
+}
+
+const SETUP_KEY = 'sinsan.setup.v1';
+function saveSetup(): void {
+  try {
+    localStorage.setItem(SETUP_KEY, JSON.stringify({ players, setup: gameSetup }));
+  } catch {
+    // storage unavailable: the setup just is not remembered
+  }
+}
+function restoreSetup(): void {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SETUP_KEY) ?? 'null') as { players?: Record<Side, string>; setup?: Record<Side, string> } | null;
+    if (!saved) return;
+    for (const side of SIDES) {
+      const select = playerSelects[side];
+      const value = saved.players?.[side];
+      if (value && Array.from(select.options).some((o) => o.value === value)) select.value = value;
+      const formation = saved.setup?.[side];
+      const setupSelect = side === 'cho' ? setupChoSelect : setupHanSelect;
+      if (formation && (FORMATIONS as string[]).includes(formation)) setupSelect.value = formation;
+    }
+  } catch {
+    // ignore unreadable or unavailable storage
+  }
+}
+
+newGameBtn.addEventListener('click', () => {
+  if (confirmNewGame()) newGame();
+});
+undoBtn.addEventListener('click', undo);
+flipBtn.addEventListener('click', flip);
 hintBtn.addEventListener('click', () => void showHint('hint'));
 threatBtn.addEventListener('click', () => void showHint('threat'));
-playerSelects.cho.addEventListener('change', newGame);
-playerSelects.han.addEventListener('change', newGame);
+for (const side of SIDES) {
+  const select = playerSelects[side];
+  let previous = select.value;
+  select.addEventListener('focus', () => (previous = select.value));
+  select.addEventListener('change', () => {
+    if (confirmNewGame()) newGame();
+    else select.value = previous;
+  });
+}
+document.addEventListener('keydown', (e) => {
+  if (e.ctrlKey || e.metaKey || e.altKey || (e.target as HTMLElement).matches('input, select, textarea')) return;
+  if (document.querySelector<HTMLElement>('#view-play')!.hidden) return;
+  if (e.key === 'u' || e.key === 'U') undo();
+  else if (e.key === 'f' || e.key === 'F') flip();
+});
 
+restoreSetup();
 newGame();
 
 /** Adds measured ladder ratings to the Sinsan preset options (FSF options carry theirs already). */

@@ -1305,3 +1305,50 @@ body {
 .nv-moves td { padding: 0.15rem 0.4rem 0.15rem 0; border-top: 1px solid color-mix(in srgb, var(--sinsan-ink) 10%, transparent); }
 .nv-pbar { display: inline-block; height: 0.55rem; margin-right: 0.35rem; border-radius: 2px; background: #e8590c; vertical-align: middle; }
 .nv-sbar { background: #1c7ed6; }
+
+/* Points and captured pieces above (opponent) and below (bottom side) the board. */
+.material-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  box-sizing: border-box;
+  width: calc(min(86vw, 78vh, 600px) + 14px + 0.5rem);
+  max-width: 100%;
+  min-height: 26px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.mat-name { white-space: nowrap; }
+.mat-cho { color: #2f6bb3; }
+.mat-han { color: #b8382c; }
+
+@media (prefers-color-scheme: dark) {
+  .mat-cho { color: #7fb0ec; }
+  .mat-han { color: #ec8a7f; }
+}
+
+.mat-caps {
+  display: flex;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.mat-piece {
+  width: 22px;
+  height: 22px;
+  margin-right: -5px;
+}
+
+.mat-points {
+  margin-left: auto;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.8;
+}
+
+.mat-lead {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  color: #3c8a3c;
+}
