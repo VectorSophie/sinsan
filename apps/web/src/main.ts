@@ -10,6 +10,10 @@ import {
 } from '@sinsan/rules';
 import type { Formation, GameResult, Move, PieceType, Position, Side } from '@sinsan/rules';
 import { createBoardView } from '@sinsan/ui';
+import {
+  ArrowUpDown, createElement, Flag, Lightbulb, MoveUpRight, Pause, Play, SkipForward, SquarePlus, StepForward, Swords, Undo2,
+} from 'lucide';
+import type { IconNode } from 'lucide';
 import { createAnalysisPanel, moveToUci, parseUci } from './analysis-panel.ts';
 import { createEngineSettings, PRESETS, presetSettings, requestFieldsFor, serverDown } from './engine-settings.ts';
 import { fetchProgress, renderAbout, renderProgress, renderRules } from './pages.ts';
@@ -91,19 +95,25 @@ app.innerHTML = `
           <div id="board"></div>
         </div>
         <div class="material-row" id="material-bottom"></div>
-        <div class="sinsan-controls">
-          <button id="undo-btn" title="Take back your last move (U)">Undo</button>
-          <button id="flip-btn" title="Turn the board around (F)">Flip</button>
-          <button id="arrows-btn" class="toggle" aria-pressed="true" title="Show the replies Sinsan expects, with their win chances (A)">Arrows</button>
-          <button id="pass-btn">Pass</button>
-          <button id="hint-btn" title="Ask Sinsan for the best move in your position">Hint</button>
-          <button id="threat-btn" title="Show what your opponent could do if you passed">Threat</button>
-          <button id="resign-btn">Resign</button>
-          <button id="new-game-btn">New Game</button>
+        <div class="sinsan-controls toolbar">
+          <div class="tool-group">
+            <button id="new-game-btn" class="tool" data-label="New game"></button>
+            <button id="undo-btn" class="tool" data-label="Undo your last move (U)"></button>
+            <button id="resign-btn" class="tool tool-danger" data-label="Resign"></button>
+          </div>
+          <div class="tool-group">
+            <button id="pass-btn" class="tool tool-wide" data-label="Pass this turn"><span>Pass</span></button>
+          </div>
+          <div class="tool-group">
+            <button id="hint-btn" class="tool" data-label="Hint: the move Sinsan would play for you (H)"></button>
+            <button id="threat-btn" class="tool" data-label="Threat: what your opponent could do if you passed (T)"></button>
+            <button id="arrows-btn" class="tool toggle" aria-pressed="true" data-label="Show the replies Sinsan expects, with their win chances (A)"></button>
+            <button id="flip-btn" class="tool" data-label="Flip the board (F)"></button>
+          </div>
         </div>
         <div class="sinsan-controls bot-controls" hidden>
-          <button id="pause-btn">Pause</button>
-          <button id="step-btn" title="Play one move">Step</button>
+          <button id="pause-btn" class="tool" data-label="Pause"></button>
+          <button id="step-btn" class="tool" data-label="Play one move"></button>
           <label>Pace <select id="pace">
             <option value="150">Fast</option><option value="900" selected>Normal</option><option value="2500">Slow</option>
           </select></label>
@@ -121,6 +131,19 @@ app.innerHTML = `
 `;
 
 const $ = <T extends Element>(sel: string) => document.querySelector<T>(sel)!;
+
+/** Puts a Lucide icon in a toolbar button (before any text it has) with its tooltip and accessible name. */
+function setIcon(button: HTMLButtonElement, icon: IconNode, label = button.dataset['label'] ?? ''): void {
+  button.querySelector('svg')?.remove();
+  button.prepend(createElement(icon, { 'aria-hidden': 'true' }));
+  button.title = label;
+  button.setAttribute('aria-label', label);
+}
+const ICONS: Record<string, IconNode> = {
+  'new-game-btn': SquarePlus, 'undo-btn': Undo2, 'resign-btn': Flag, 'pass-btn': SkipForward, 'hint-btn': Lightbulb,
+  'threat-btn': Swords, 'arrows-btn': MoveUpRight, 'flip-btn': ArrowUpDown, 'pause-btn': Pause, 'step-btn': StepForward,
+};
+for (const [id, icon] of Object.entries(ICONS)) setIcon($<HTMLButtonElement>(`#${id}`), icon);
 const boardEl = $<HTMLDivElement>('#board');
 const statusEl = $<HTMLDivElement>('#status');
 const playerSelects: Record<Side, HTMLSelectElement> = { cho: $('#player-cho'), han: $('#player-han') };
@@ -320,7 +343,10 @@ function updateStatus(): void {
   threatBtn.disabled = !humanTurn || hintBusy || isCheck(position);
   resignBtn.disabled = !humanTurn;
   pauseBtn.disabled = false;
-  pauseBtn.textContent = paused ? 'Resume' : 'Pause';
+  if (pauseBtn.dataset['state'] !== String(paused)) {
+    pauseBtn.dataset['state'] = String(paused);
+    setIcon(pauseBtn, paused ? Play : Pause, paused ? 'Resume' : 'Pause');
+  }
   stepBtn.disabled = !paused || botBusy || humanTurn;
 }
 
@@ -608,6 +634,8 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === 'u' || e.key === 'U') undo();
   else if (e.key === 'f' || e.key === 'F') flip();
   else if (e.key === 'a' || e.key === 'A') toggleArrows();
+  else if (e.key === 'h' || e.key === 'H') void showHint('hint');
+  else if (e.key === 't' || e.key === 'T') void showHint('threat');
 });
 
 restoreSetup();
