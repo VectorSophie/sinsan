@@ -1,12 +1,31 @@
 # 神算 Sinsan
 
-A Korean Janggi engine distilled into a browser-native model under 500KiB, in the spirit of
+A Korean Janggi engine in the AlphaZero style: a GPU-trained transformer with Monte Carlo tree
+search, plus a distilled version that runs entirely in the browser (the same Rust search compiled to
+WebAssembly, with a 10.7M-parameter int8 network of about 12 MB). It started in the spirit of
 [millionco/moka](https://github.com/millionco/moka)'s approach to Go - reimagined for Janggi's own
-rules, action space, and product identity rather than mechanically reskinned. See
+rules, action space, and product identity rather than mechanically reskinned. The original goal of a
+model under 500 KiB was dropped in the rebuild in favour of strength: the browser model is about
+12 MB and plays at roughly 1,600-1,900 on the Fairy-Stockfish ladder below. See
 `docs/RESEARCH.md` and `docs/PRODUCT_VISION.md` for why this project exists and what it is and
 isn't trying to be.
 
-## Rebuild (2026-10, branch `rebuild`)
+Play it on pychess.org as the BOT [`sin-san`](https://www.pychess.org/@/sin-san) (no login
+needed), or run the web app locally (below).
+
+| Player | Ladder Elo (0 = Fairy-Stockfish NNUE at 1K nodes) |
+|---|---|
+| Full RL net, 800 visits (GPU) | ~2,490-2,520 |
+| Browser student v2, 400 visits, cpuct 1.2 (in-browser preset, pychess bot) | ~1,825 (estimate: v1 + 151 + 47) |
+| Browser student v1, 800 visits | ~1,875 |
+| Browser student v1, 400 visits | ~1,627 |
+| Original project's best (V3, 16 visits) | ~-1,424 |
+
+On a human scale, the v1 browser level was estimated at about 2,200 on PyChess's Janggi rating scale
+(90% range ~1,950-2,475), above every established-rated player in PyChess's public game archive;
+see "P7: human-scale strength" in `docs/REBUILD_LOG.md`.
+
+## Rebuild (2026-10, merged into `master`)
 
 The original pipeline (below) topped out about 900 Elo under Fairy-Stockfish at 64 nodes per
 move. A post-mortem found four causes: near-uniform policy labels (softmax over cp/800), a
@@ -53,7 +72,8 @@ cd .. && npm install && npm run dev --workspace=@sinsan/web  # http://localhost:
 Without the server the app plays with the browser engine only; the dev server sends the
 cross-origin isolation headers that let onnxruntime-web use several threads.
 
-The status list below describes the original project and is kept for history.
+The status list and project layout below describe the original project and are kept for history;
+the rebuild's pieces are in the table above.
 
 ## Status (original project)
 
@@ -322,6 +342,17 @@ generation scripts: teacher, generate, model, train, export all implemented for 
 on-policy refinement not yet), `apps/` (web: playable board implemented; arena not yet), `tests/`
 (unit, fixtures, model, differential all implemented; browser/Playwright not yet), `benchmarks/`
 (model inference latency), `assets/`, `docs/`, `scripts/`, `licenses/`.
+
+## Acknowledgements
+
+- **[PyChess](https://www.pychess.org)** ([gbtami/pychess-variants](https://github.com/gbtami/pychess-variants)):
+  the human Janggi games used to estimate Sinsan's strength on a human scale come from the PyChess
+  game archive the maintainer publishes ([gbtami/pychess-variants-games](https://github.com/gbtami/pychess-variants-games),
+  release "pychess-janggi-games"). The archive is used locally for analysis and is not redistributed
+  here. PyChess also hosts the `sin-san` BOT, and its AI-level settings
+  ([gbtami/fairyfishnet](https://github.com/gbtami/fairyfishnet)) are reproduced for rating anchors.
+- **[Fairy-Stockfish](https://github.com/fairy-stockfish/Fairy-Stockfish)**: the teacher engine, the
+  rules reference, and the analysis engine for the human-rating estimate.
 
 ## License
 

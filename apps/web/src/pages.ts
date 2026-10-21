@@ -241,7 +241,7 @@ function classLegend(): string {
 
 /** Ladder ratings at 800 visits (docs/REBUILD_LOG.md). */
 const STRENGTH_GPU = '2,520 (round 13)';
-const STRENGTH_BROWSER = '1,627 at 400 visits; 1,875 at 800';
+const STRENGTH_BROWSER = '~1,825 at 400 visits (v2, estimate)';
 
 export function renderAbout(container: HTMLElement): void {
   container.innerHTML = `
@@ -322,7 +322,7 @@ export function renderAbout(container: HTMLElement): void {
         <tr><td>Network</td><td>latest self-play / before self-play / small</td><td>latest</td></tr>
         <tr><td>Visits or time</td><td>more = deeper and stronger</td><td>800</td></tr>
         <tr><td>Randomness</td><td>plays moves in proportion to visits: weaker, varied</td><td>off</td></tr>
-        <tr><td>Exploration (cpuct)</td><td>↑ wider search · ↓ digs into favourites</td><td>1.745</td></tr>
+        <tr><td>Exploration (cpuct)</td><td>↑ wider search · ↓ digs into favourites</td><td>1.2</td></tr>
         <tr><td>Unvisited-move penalty</td><td>↑ narrower search</td><td>0.33</td></tr>
         <tr><td>Policy softness</td><td>↑ gives disliked moves a look</td><td>1.36</td></tr>
         <tr><td>Point greed</td><td>↑ prefers bigger point wins</td><td>off</td></tr>

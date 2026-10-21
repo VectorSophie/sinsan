@@ -17,7 +17,7 @@ export interface EngineSettings {
 
 export const DEFAULTS: EngineSettings = {
   net: 'best', limit: 'visits', visits: 800, timeMs: 3000, temperature: 0, tempPlies: 0,
-  cpuct: 1.745, fpu: 0.33, ptemp: 1.36, util: 0,
+  cpuct: 1.2, fpu: 0.33, ptemp: 1.36, util: 0,
 };
 
 /** Rough strength levels. Ratings are on the Fairy-Stockfish ladder (0 = FSF NNUE at 1K nodes),

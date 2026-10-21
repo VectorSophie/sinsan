@@ -13,7 +13,7 @@ With --int8 the MatMul weights are quantized (onnxruntime dynamic quantization),
 about 4x smaller and faster on WebAssembly. Parity against PyTorch is checked on validation positions
 and written next to the model as <out>.json, which the web app reads for the model's name and size.
 
-  uv run python -m export.export_onnx --checkpoint runs/student-tf192x6/ema-0030000.pt \\
+  uv run python -m export.export_onnx --checkpoint runs/student-tf192x6-v2/ema-0060000.pt \\
       --out ../apps/web/public/student/student.onnx --int8
 """
 

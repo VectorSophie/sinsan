@@ -39,3 +39,4 @@ training/datasets/selfplay/
 
 # secrets
 .env
+training/datasets/pychess-games/
