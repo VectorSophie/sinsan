@@ -446,15 +446,25 @@ export function createAnalysisPanel(container: HTMLElement, callbacks: PanelCall
       });
   }
 
-  /** While inspecting a search: every candidate Sinsan weighed in that position. During play (the
-   * board is past Sinsan's move): the replies it considered to that move, with their chances. */
+  /** Children of a tree row (-1 = the root) as options with visits and the mover's value. */
+  function childOptions(entry: Entry, row: number): { move: string; visits: number; q: number | null; row: number }[] {
+    return entry.analysis.tree.flatMap((r, i) => (r[0] === row ? [{ move: r[2], visits: r[3], q: r[4], row: i }] : []));
+  }
+
+  /** Arrows for both sides: one side's options and, fainter in number, the other side's answers to
+   * the most searched of them. While inspecting a search: Sinsan's candidates, then the replies to
+   * its top one. During play (the board is past Sinsan's move): the replies it considered to that
+   * move, then its own planned answers to the likeliest reply. */
   function defaultArrows(entry: Entry): BoardArrow[] {
-    if (viewing) return rankedArrows(entry.analysis.candidates, entry.side);
-    const rows = entry.analysis.tree;
-    const chosen = rows.findIndex((r) => r[0] === -1 && r[2] === entry.analysis.move);
-    const replies = rows.filter((r) => chosen >= 0 && r[0] === chosen).map((r) => ({ move: r[2], visits: r[3], q: r[4] }));
-    const arrows = rankedArrows(replies, other(entry.side));
-    return arrows.length ? arrows : arrowsFor(entry.analysis.pv.slice(1, 3), other(entry.side), true);
+    const first = viewing
+      ? childOptions(entry, -1)
+      : childOptions(entry, entry.analysis.tree.findIndex((r) => r[0] === -1 && r[2] === entry.analysis.move));
+    const firstMover = viewing ? entry.side : other(entry.side);
+    if (!first.length) return viewing ? rankedArrows(entry.analysis.candidates, entry.side) : arrowsFor(entry.analysis.pv.slice(1, 3), other(entry.side), true);
+    const top = [...first].sort((a, b) => b.visits - a.visits)[0]!;
+    const answers = rankedArrows(childOptions(entry, top.row), other(firstMover)).slice(0, 3);
+    // The first side's arrows last, so they are drawn on top.
+    return [...answers, ...rankedArrows(viewing ? entry.analysis.candidates : first, firstMover)];
   }
 
   /** Show the position before entry `i` on the board with all of that search's candidates. */
