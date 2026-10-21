@@ -278,11 +278,15 @@ function updateStatus(): void {
   }
   const side = position.sideToMove;
   const checkNote = isCheck(position) ? ' - check!' : '';
-  const thinking = botBusy ? ' (thinking…)' : paused && !isHuman(side) ? ' (paused)' : '';
+  // Always present (hidden when idle) so the line does not re-center every time Sinsan starts thinking.
+  const thinking = document.createElement('span');
+  thinking.className = 'status-thinking';
+  thinking.textContent = paused && !isHuman(side) && !botBusy ? ' (paused)' : ' (thinking…)';
+  thinking.style.visibility = botBusy || (paused && !isHuman(side)) ? 'visible' : 'hidden';
   // The no-capture count only matters near the limit, where the game is decided on points.
   const limit = ruleProfileFor(position.ruleProfile).noCaptureMoveLimit;
   const quiet = position.noCapturePly >= limit * 0.6 ? ` · ${limit - position.noCapturePly} plies left without a capture` : '';
-  statusEl.textContent = `Move ${Math.floor(uciMoves.length / 2) + 1} · ${side === 'cho' ? 'Cho' : 'Han'} (${names[side]}) to move${checkNote}${thinking}${quiet}`;
+  statusEl.replaceChildren(`Move ${Math.floor(uciMoves.length / 2) + 1} · ${side === 'cho' ? 'Cho' : 'Han'} (${names[side]}) to move${checkNote}`, thinking, quiet);
   const humanTurn = isHuman(side);
   passBtn.disabled = !humanTurn || isCheck(position);
   hintBtn.disabled = !humanTurn || hintBusy;

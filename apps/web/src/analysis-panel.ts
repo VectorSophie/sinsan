@@ -200,6 +200,12 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: 
 }
 
 const SVG = 'http://www.w3.org/2000/svg';
+// Fixed row counts, padded with blank rows, so the panel keeps its height from move to move.
+const LINES = 3;
+const CANDIDATES = 8;
+function blankRows<T>(n: number, make: () => T): T[] {
+  return Array.from({ length: Math.max(0, n) }, make);
+}
 function svg<K extends keyof SVGElementTagNameMap>(tag: K, attrs: Record<string, string | number>): SVGElementTagNameMap[K] {
   const e = document.createElementNS(SVG, tag);
   for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, String(v));
@@ -425,7 +431,7 @@ export function createAnalysisPanel(container: HTMLElement, callbacks: PanelCall
     const rows = analysis.tree;
     const childrenOf = new Map<number, number[]>();
     rows.forEach((r, i) => childrenOf.set(r[0], [...(childrenOf.get(r[0]) ?? []), i]));
-    const tops = (childrenOf.get(-1) ?? []).slice(0, 3);
+    const tops = (childrenOf.get(-1) ?? []).slice(0, LINES);
     linesBox.replaceChildren(
       ...tops.map((rootRow) => {
         const line: string[] = [rows[rootRow]![2]];
@@ -447,14 +453,16 @@ export function createAnalysisPanel(container: HTMLElement, callbacks: PanelCall
         div.addEventListener('mouseleave', () => showArrows(defaultArrows(entry)));
         return div;
       }),
+      ...blankRows(LINES - tops.length, () => el('div', 'ap-pvline ap-blank', '\u00a0')),
     );
   }
 
   function renderCandidates(entry: Entry): void {
     const { analysis, before } = entry;
     const total = Math.max(1, analysis.candidates.reduce((a, c) => a + c.visits, 0));
+    const shown = analysis.candidates.filter((c) => c.visits > 0 || c.prior > 0.02).slice(0, CANDIDATES);
     candBody.replaceChildren(
-      ...analysis.candidates.filter((c) => c.visits > 0 || c.prior > 0.02).slice(0, 8).map((c) => {
+      ...shown.map((c) => {
         const tr = el('tr', c.move === analysis.move ? 'ap-chosen' : '');
         const win = c.q === null ? null : (c.q + 1) / 2;
         const tag = c.move === analysis.move ? (c.move === analysis.best ? ' ✓' : ' ✓ (sampled)') : '';
@@ -476,6 +484,11 @@ export function createAnalysisPanel(container: HTMLElement, callbacks: PanelCall
         );
         tr.addEventListener('mouseenter', () => showArrows(arrowsFor([c.move], entry.side)));
         tr.addEventListener('mouseleave', () => showArrows(defaultArrows(entry)));
+        return tr;
+      }),
+      ...blankRows(CANDIDATES - shown.length, () => {
+        const tr = el('tr', 'ap-blank');
+        tr.append(el('td', 'ap-move', '\u00a0'), el('td'), el('td'), el('td'));
         return tr;
       }),
     );
@@ -672,8 +685,12 @@ export function createAnalysisPanel(container: HTMLElement, callbacks: PanelCall
     evalDetail.textContent = 'Waiting for the first search.';
     stats.textContent = '';
     linesWho.textContent = '';
-    linesBox.replaceChildren();
-    candBody.replaceChildren();
+    linesBox.replaceChildren(...blankRows(LINES, () => el('div', 'ap-pvline ap-blank', '\u00a0')));
+    candBody.replaceChildren(...blankRows(CANDIDATES, () => {
+      const tr = el('tr', 'ap-blank');
+      tr.append(el('td', 'ap-move', '\u00a0'), el('td'), el('td'), el('td'));
+      return tr;
+    }));
     treeBox.replaceChildren();
     renderGraph();
     renderMoves();
