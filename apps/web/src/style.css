@@ -15,13 +15,19 @@
   }
 }
 
+/* Reserve the scrollbar's width so the page does not shift sideways when the page height
+   crosses the window height (it changes as the analysis panel fills in). */
+html {
+  scrollbar-gutter: stable;
+}
+
 body {
   margin: 0;
   min-height: 100vh;
   background: var(--sinsan-bg);
   color: var(--sinsan-ink);
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
 }
 
@@ -337,9 +343,10 @@ body {
   color: var(--panel-muted);
 }
 
+/* Fixed height: trees of different sizes would otherwise move everything below them. */
 .ap-tree {
   overflow: auto;
-  max-height: 460px;
+  height: 360px;
 }
 
 .ap-tree-svg {
@@ -1351,4 +1358,42 @@ body {
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
   color: #3c8a3c;
+}
+
+/* Stable heights in the analysis panel from move to move. */
+.ap-eval-detail,
+.ap-stats {
+  min-height: 2.5em;
+}
+
+.ap-cands td.ap-move {
+  white-space: nowrap;
+}
+
+.ap-blank,
+.ap-blank:hover td,
+.ap-pvline.ap-blank:hover {
+  background: none;
+  cursor: default;
+}
+
+/* Fixed column widths: auto layout re-sizes the columns to each move's contents. */
+.ap-cands {
+  table-layout: fixed;
+}
+
+.ap-cands th:nth-child(1) { width: 34%; }
+.ap-cands th:nth-child(2) { width: 36%; }
+.ap-cands th:nth-child(3),
+.ap-cands th:nth-child(4) { width: 15%; }
+
+.ap-cands td.ap-move {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.status-back {
+  margin-left: 0.4rem;
+  padding: 0.05rem 0.6rem;
+  font-size: 0.85rem;
 }

@@ -1,5 +1,6 @@
 import { applyMove, findGeneral, pieceAt } from '@sinsan/rules';
 import type { GameResult, Move, Position, Side } from '@sinsan/rules';
+import { RANK_BRUSHES } from '@sinsan/ui';
 import type { BoardArrow } from '@sinsan/ui';
 
 /** What training/play_server.py returns for one Sinsan search. Each q is from the point of view of
@@ -78,6 +79,8 @@ export interface AnalysisPanel {
   reset(names: Record<Side, string>, viewer: Side, humans: readonly Side[]): void;
   /** Takes back every move from `ply` on (undo): their searches, ratings and the review. */
   truncate(ply: number): void;
+  /** Leaves an inspected earlier position and returns to the game. */
+  exitView(): void;
   addAnalysis(ply: number, before: Position, analysis: ServerAnalysis): void;
   noteMove(ply: number, before: Position, move: Move, fsf?: FsfInfo): void;
   gameOver(result: GameResult): void;
@@ -89,6 +92,8 @@ export interface PanelCallbacks {
   onArrows(arrows: BoardArrow[]): void;
   /** Win chance (0..1) of the side at the bottom of the board, or null when unknown. */
   onEval(viewerWin: number | null): void;
+  /** Show an earlier position (inspecting one of Sinsan's searches), or null to go back to the game. */
+  onView(view: { position: Position; lastMove?: Move; ply: number; side: Side } | null): void;
 }
 
 const GLYPHS: Record<string, [string, string]> = {
@@ -200,6 +205,12 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: 
 }
 
 const SVG = 'http://www.w3.org/2000/svg';
+// Fixed row counts, padded with blank rows, so the panel keeps its height from move to move.
+const LINES = 3;
+const CANDIDATES = 8;
+function blankRows<T>(n: number, make: () => T): T[] {
+  return Array.from({ length: Math.max(0, n) }, make);
+}
 function svg<K extends keyof SVGElementTagNameMap>(tag: K, attrs: Record<string, string | number>): SVGElementTagNameMap[K] {
   const e = document.createElementNS(SVG, tag);
   for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, String(v));
@@ -276,6 +287,7 @@ export function createAnalysisPanel(container: HTMLElement, callbacks: PanelCall
   let viewer: Side = 'cho';
   let humans: readonly Side[] = [];
   let live = true; // the selected entry is the latest move: arrows match the board
+  let viewing = false; // the board shows the selected entry's position (inspecting a search)
   let hintArrows: BoardArrow[] | null = null;
 
   const who = (side: Side) => names[side];
@@ -414,8 +426,42 @@ export function createAnalysisPanel(container: HTMLElement, callbacks: PanelCall
   }
 
   /** On the board after a Sinsan move: the reply it expects (and, faintly, its follow-up). */
+  /** While inspecting a search: every candidate worth showing, most searched first, with its win chance.
+   * Otherwise the reply Sinsan expects (the board has already moved past the search). */
   function defaultArrows(entry: Entry): BoardArrow[] {
-    return arrowsFor(entry.analysis.pv.slice(1, 3), other(entry.side), true);
+    if (!viewing) return arrowsFor(entry.analysis.pv.slice(1, 3), other(entry.side), true);
+    const total = Math.max(1, entry.analysis.candidates.reduce((a, c) => a + c.visits, 0));
+    return entry.analysis.candidates
+      .filter((c) => c.visits >= Math.max(1, total * 0.02))
+      .sort((a, b) => b.visits - a.visits)
+      .slice(0, RANK_BRUSHES)
+      .flatMap((c, rank) => {
+        const m = parseUci(c.move);
+        if (m.isPass) return [];
+        const win = c.q === null ? null : (c.q + 1) / 2;
+        return [{
+          from: m.from, to: m.to, brush: `${entry.side}${rank}`,
+          lineWidth: 4 + 9 * Math.sqrt(c.visits / total),
+          label: { text: pct(win), color: winColor(win) },
+        }];
+      });
+  }
+
+  /** Show the position before entry `i` on the board with all of that search's candidates. */
+  function inspect(i: number): void {
+    const entry = entries[i]!;
+    clearHint();
+    viewing = true;
+    const prev = played.find((p) => p.ply === entry.ply - 1);
+    callbacks.onView({ position: entry.before, lastMove: prev ? parseUci(prev.uci) : undefined, ply: entry.ply, side: entry.side });
+    select(i);
+  }
+
+  function exitView(): void {
+    if (!viewing) return;
+    viewing = false;
+    callbacks.onView(null);
+    if (entries.length) select(entries.length - 1);
   }
 
   /** Top candidates, each continued by the most-visited child at every ply (the tree's MultiPV). */
@@ -425,7 +471,7 @@ export function createAnalysisPanel(container: HTMLElement, callbacks: PanelCall
     const rows = analysis.tree;
     const childrenOf = new Map<number, number[]>();
     rows.forEach((r, i) => childrenOf.set(r[0], [...(childrenOf.get(r[0]) ?? []), i]));
-    const tops = (childrenOf.get(-1) ?? []).slice(0, 3);
+    const tops = (childrenOf.get(-1) ?? []).slice(0, LINES);
     linesBox.replaceChildren(
       ...tops.map((rootRow) => {
         const line: string[] = [rows[rootRow]![2]];
@@ -447,14 +493,16 @@ export function createAnalysisPanel(container: HTMLElement, callbacks: PanelCall
         div.addEventListener('mouseleave', () => showArrows(defaultArrows(entry)));
         return div;
       }),
+      ...blankRows(LINES - tops.length, () => el('div', 'ap-pvline ap-blank', '\u00a0')),
     );
   }
 
   function renderCandidates(entry: Entry): void {
     const { analysis, before } = entry;
     const total = Math.max(1, analysis.candidates.reduce((a, c) => a + c.visits, 0));
+    const shown = analysis.candidates.filter((c) => c.visits > 0 || c.prior > 0.02).slice(0, CANDIDATES);
     candBody.replaceChildren(
-      ...analysis.candidates.filter((c) => c.visits > 0 || c.prior > 0.02).slice(0, 8).map((c) => {
+      ...shown.map((c) => {
         const tr = el('tr', c.move === analysis.move ? 'ap-chosen' : '');
         const win = c.q === null ? null : (c.q + 1) / 2;
         const tag = c.move === analysis.move ? (c.move === analysis.best ? ' ✓' : ' ✓ (sampled)') : '';
@@ -476,6 +524,11 @@ export function createAnalysisPanel(container: HTMLElement, callbacks: PanelCall
         );
         tr.addEventListener('mouseenter', () => showArrows(arrowsFor([c.move], entry.side)));
         tr.addEventListener('mouseleave', () => showArrows(defaultArrows(entry)));
+        return tr;
+      }),
+      ...blankRows(CANDIDATES - shown.length, () => {
+        const tr = el('tr', 'ap-blank');
+        tr.append(el('td', 'ap-move', '\u00a0'), el('td'), el('td'), el('td'));
         return tr;
       }),
     );
@@ -517,7 +570,7 @@ export function createAnalysisPanel(container: HTMLElement, callbacks: PanelCall
         const e = entries[i]!;
         t.textContent = `Move ${e.ply + 1}: ${who(e.side)} ${moveLabel(e.before, e.analysis.move)}, ${who(viewer)} ${pct(winFor(e, viewer))} (click to inspect)`;
         c.appendChild(t);
-        c.addEventListener('click', () => select(i));
+        c.addEventListener('click', () => inspect(i));
         s.appendChild(c);
       });
     }
@@ -547,7 +600,7 @@ export function createAnalysisPanel(container: HTMLElement, callbacks: PanelCall
         info.append(`${pct(chosenWin(e))} · ${e.analysis.visits.toLocaleString()} visits`);
         div.classList.add('ap-mv-click');
         if (p.entry === selected) div.classList.add('ap-mv-sel');
-        div.addEventListener('click', () => select(p.entry!));
+        div.addEventListener('click', () => inspect(p.entry!));
       } else if (p.fsf) {
         const win = cpToWin(p.fsf.cp, p.fsf.mate);
         const score = p.fsf.mate !== null ? `mate ${p.fsf.mate}` : p.fsf.cp !== null ? `${p.fsf.cp > 0 ? '+' : ''}${(p.fsf.cp / 100).toFixed(2)}` : '';
@@ -576,7 +629,7 @@ export function createAnalysisPanel(container: HTMLElement, callbacks: PanelCall
   function select(i: number): void {
     selected = i;
     const entry = entries[i]!;
-    live = played[played.length - 1]?.entry === i;
+    live = viewing || played[played.length - 1]?.entry === i;
     const { analysis } = entry;
     const choWin = winFor(entry, 'cho');
     const netWin = analysis.net_value === null ? null : (analysis.net_value + 1) / 2;
@@ -672,8 +725,12 @@ export function createAnalysisPanel(container: HTMLElement, callbacks: PanelCall
     evalDetail.textContent = 'Waiting for the first search.';
     stats.textContent = '';
     linesWho.textContent = '';
-    linesBox.replaceChildren();
-    candBody.replaceChildren();
+    linesBox.replaceChildren(...blankRows(LINES, () => el('div', 'ap-pvline ap-blank', '\u00a0')));
+    candBody.replaceChildren(...blankRows(CANDIDATES, () => {
+      const tr = el('tr', 'ap-blank');
+      tr.append(el('td', 'ap-move', '\u00a0'), el('td'), el('td'), el('td'));
+      return tr;
+    }));
     treeBox.replaceChildren();
     renderGraph();
     renderMoves();
@@ -683,6 +740,7 @@ export function createAnalysisPanel(container: HTMLElement, callbacks: PanelCall
 
   return {
     reset(newNames, newViewer, newHumans) {
+      viewing = false;
       names = newNames;
       viewer = newViewer;
       humans = newHumans;
@@ -693,6 +751,7 @@ export function createAnalysisPanel(container: HTMLElement, callbacks: PanelCall
       clearSearchView();
     },
     truncate(ply) {
+      viewing = false;
       clearHint();
       reviewBox.hidden = true;
       played = played.filter((p) => p.ply < ply);
@@ -710,7 +769,9 @@ export function createAnalysisPanel(container: HTMLElement, callbacks: PanelCall
       select(entries.length - 1);
       callbacks.onEval(winFor(entries[entries.length - 1]!, viewer));
     },
+    exitView,
     addAnalysis(ply, before, analysis) {
+      exitView();
       clearHint();
       const side = before.sideToMove;
       rateMoveBefore(ply, 1 - (analysis.value + 1) / 2);
@@ -721,6 +782,7 @@ export function createAnalysisPanel(container: HTMLElement, callbacks: PanelCall
       callbacks.onEval(winFor(e, viewer));
     },
     noteMove(ply, before, move, fsf) {
+      exitView();
       clearHint();
       record(ply, before, moveToUci(move, before), fsf ? { fsf } : {});
       live = false; // the board has moved on; arrows from the last search would point at the wrong position

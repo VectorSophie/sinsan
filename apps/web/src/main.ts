@@ -154,7 +154,15 @@ const panel = createAnalysisPanel($<HTMLElement>('#analysis'), {
     viewerWin = win;
     renderEvalBar();
   },
+  onView: (view) => {
+    viewing = view;
+    if (view) boardView.sync(view.position, view.lastMove, 0, true);
+    else boardView.sync(position, uciMoves.length ? parseUci(uciMoves[uciMoves.length - 1]!) : undefined, 0);
+    updateStatus();
+  },
 });
+/** An earlier position shown on the board while inspecting one of Sinsan's searches. */
+let viewing: { position: Position; ply: number; side: Side } | null = null;
 const engineSettings = createEngineSettings($<HTMLElement>('#engine-settings'), () => updateStatus());
 
 let position: Position;
@@ -235,7 +243,7 @@ function material(p: Position): { points: Record<Side, number>; lost: Record<Sid
 
 /** The strips above and below the board: each side's points and the enemy pieces it has taken. */
 function renderMaterial(): void {
-  const { points, lost } = material(position);
+  const { points, lost } = material(viewing?.position ?? position);
   const hanBonus = ruleProfileFor(position.ruleProfile).hanCompensationPoints;
   for (const [where, side] of [['top', other(bottom)], ['bottom', bottom]] as const) {
     const enemy = other(side);
@@ -264,25 +272,46 @@ function undoTarget(): number | null {
   return null;
 }
 
+/** The result line once the game is over (restored after inspecting an earlier position). */
+let finalStatus = '';
+
 function updateStatus(): void {
   renderMaterial();
   undoBtn.disabled = humanSides().length === 0 || undoTarget() === null;
-  if (gameOver) return;
+  if (viewing) {
+    for (const b of [passBtn, hintBtn, threatBtn, resignBtn, undoBtn]) b.disabled = true;
+    const back = document.createElement('button');
+    back.className = 'status-back';
+    back.textContent = 'Back to game';
+    back.title = 'Esc';
+    back.addEventListener('click', () => panel.exitView());
+    statusEl.replaceChildren(`Inspecting move ${viewing.ply + 1}: ${names[viewing.side]}'s search before it `, back);
+    return;
+  }
+  if (gameOver) {
+    statusEl.textContent = finalStatus;
+    return;
+  }
   const result = getGameResult(position);
   if (result) {
     gameOver = true;
-    statusEl.textContent = resultText(result);
+    finalStatus = resultText(result);
+    statusEl.textContent = finalStatus;
     for (const b of [passBtn, hintBtn, threatBtn, pauseBtn, stepBtn]) b.disabled = true;
     panel.gameOver(result);
     return;
   }
   const side = position.sideToMove;
   const checkNote = isCheck(position) ? ' - check!' : '';
-  const thinking = botBusy ? ' (thinking…)' : paused && !isHuman(side) ? ' (paused)' : '';
+  // Always present (hidden when idle) so the line does not re-center every time Sinsan starts thinking.
+  const thinking = document.createElement('span');
+  thinking.className = 'status-thinking';
+  thinking.textContent = paused && !isHuman(side) && !botBusy ? ' (paused)' : ' (thinking…)';
+  thinking.style.visibility = botBusy || (paused && !isHuman(side)) ? 'visible' : 'hidden';
   // The no-capture count only matters near the limit, where the game is decided on points.
   const limit = ruleProfileFor(position.ruleProfile).noCaptureMoveLimit;
   const quiet = position.noCapturePly >= limit * 0.6 ? ` · ${limit - position.noCapturePly} plies left without a capture` : '';
-  statusEl.textContent = `Move ${Math.floor(uciMoves.length / 2) + 1} · ${side === 'cho' ? 'Cho' : 'Han'} (${names[side]}) to move${checkNote}${thinking}${quiet}`;
+  statusEl.replaceChildren(`Move ${Math.floor(uciMoves.length / 2) + 1} · ${side === 'cho' ? 'Cho' : 'Han'} (${names[side]}) to move${checkNote}`, thinking, quiet);
   const humanTurn = isHuman(side);
   passBtn.disabled = !humanTurn || isCheck(position);
   hintBtn.disabled = !humanTurn || hintBusy;
@@ -419,6 +448,7 @@ function handleHumanMove(move: Move): void {
 
 function newGame(): void {
   clearTimeout(botTimer);
+  viewing = null;
   gameId++;
   gameOver = false;
   botBusy = false;
@@ -461,7 +491,8 @@ resignBtn.addEventListener('click', () => {
   clearTimeout(botTimer);
   gameOver = true;
   const winner: Side = position.sideToMove === 'cho' ? 'han' : 'cho';
-  statusEl.textContent = resultText({ winner, kind: 'resignation' });
+  finalStatus = resultText({ winner, kind: 'resignation' });
+  statusEl.textContent = finalStatus;
   for (const b of [passBtn, hintBtn, threatBtn, pauseBtn, stepBtn]) b.disabled = true;
   panel.gameOver({ winner, kind: 'resignation' });
 });
@@ -482,6 +513,7 @@ stepBtn.addEventListener('click', () => {
 function undo(): void {
   const k = undoTarget();
   if (k === null) return;
+  panel.exitView();
   clearTimeout(botTimer);
   gameId++; // drops the reply of a search still running for the position being taken back
   botBusy = false;
@@ -555,7 +587,8 @@ for (const side of SIDES) {
 document.addEventListener('keydown', (e) => {
   if (e.ctrlKey || e.metaKey || e.altKey || (e.target as HTMLElement).matches('input, select, textarea')) return;
   if (document.querySelector<HTMLElement>('#view-play')!.hidden) return;
-  if (e.key === 'u' || e.key === 'U') undo();
+  if (e.key === 'Escape') panel.exitView();
+  else if (e.key === 'u' || e.key === 'U') undo();
   else if (e.key === 'f' || e.key === 'F') flip();
 });
 
