@@ -76,6 +76,8 @@ interface Played {
 
 export interface AnalysisPanel {
   reset(names: Record<Side, string>, viewer: Side, humans: readonly Side[]): void;
+  /** Takes back every move from `ply` on (undo): their searches, ratings and the review. */
+  truncate(ply: number): void;
   addAnalysis(ply: number, before: Position, analysis: ServerAnalysis): void;
   noteMove(ply: number, before: Position, move: Move, fsf?: FsfInfo): void;
   gameOver(result: GameResult): void;
@@ -662,6 +664,23 @@ export function createAnalysisPanel(container: HTMLElement, callbacks: PanelCall
     hintArrows = null;
   }
 
+  /** The panel with no search to show yet. */
+  function clearSearchView(): void {
+    selected = -1;
+    live = true;
+    renderEvalHeader(null, null);
+    evalDetail.textContent = 'Waiting for the first search.';
+    stats.textContent = '';
+    linesWho.textContent = '';
+    linesBox.replaceChildren();
+    candBody.replaceChildren();
+    treeBox.replaceChildren();
+    renderGraph();
+    renderMoves();
+    callbacks.onArrows([]);
+    callbacks.onEval(null);
+  }
+
   return {
     reset(newNames, newViewer, newHumans) {
       names = newNames;
@@ -669,21 +688,27 @@ export function createAnalysisPanel(container: HTMLElement, callbacks: PanelCall
       humans = newHumans;
       entries = [];
       played = [];
-      selected = -1;
-      live = true;
       clearHint();
-      renderEvalHeader(null, null);
-      evalDetail.textContent = 'Waiting for the first search.';
-      stats.textContent = '';
-      linesWho.textContent = '';
-      linesBox.replaceChildren();
-      candBody.replaceChildren();
-      treeBox.replaceChildren();
       reviewBox.hidden = true;
-      renderGraph();
-      renderMoves();
-      callbacks.onArrows([]);
-      callbacks.onEval(null);
+      clearSearchView();
+    },
+    truncate(ply) {
+      clearHint();
+      reviewBox.hidden = true;
+      played = played.filter((p) => p.ply < ply);
+      entries = entries.filter((e) => e.ply < ply);
+      // The last kept move was rated by a search that has just been taken back.
+      const last = played[played.length - 1];
+      if (last) {
+        delete last.loss;
+        delete last.cls;
+      }
+      if (!entries.length) {
+        clearSearchView();
+        return;
+      }
+      select(entries.length - 1);
+      callbacks.onEval(winFor(entries[entries.length - 1]!, viewer));
     },
     addAnalysis(ply, before, analysis) {
       clearHint();

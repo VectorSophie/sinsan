@@ -27,6 +27,8 @@ export interface BoardArrow {
 export interface BoardView {
   sync(position: Position, lastMove?: Move, animationDurationMs?: number): void;
   setArrows(arrows: readonly BoardArrow[]): void;
+  /** Which side is drawn at the bottom. */
+  setOrientation(side: Side): void;
   destroy(): void;
 }
 
@@ -118,6 +120,7 @@ export function createBoardView(container: HTMLElement, position: Position, opti
   return {
     sync,
     setArrows,
+    setOrientation: (side) => api.set({ orientation: colorOf(side) }),
     destroy: () => api.destroy(),
   };
 }
