@@ -1,5 +1,6 @@
 import { Chessground } from 'chessgroundx';
 import type { Config } from 'chessgroundx/config.js';
+import type { DrawShape } from 'chessgroundx/draw.js';
 import type { Dests, Key } from 'chessgroundx/types.js';
 import { Notation } from 'chessgroundx/types.js';
 import { generateLegalMoves, isCheck, positionKey } from '@sinsan/rules';
@@ -22,10 +23,13 @@ export interface BoardArrow {
   /** chessground brush name: green, red, blue, yellow, paleBlue, paleGreen, paleRed, paleGrey. */
   readonly brush: string;
   readonly lineWidth?: number;
+  /** A small badge (e.g. a win chance) drawn on the destination square. */
+  readonly label?: { readonly text: string; readonly color: string };
 }
 
 export interface BoardView {
-  sync(position: Position, lastMove?: Move, animationDurationMs?: number): void;
+  /** Shows `position`; with `readOnly` nobody can move (e.g. while inspecting an earlier position). */
+  sync(position: Position, lastMove?: Move, animationDurationMs?: number, readOnly?: boolean): void;
   setArrows(arrows: readonly BoardArrow[]): void;
   /** Which side is drawn at the bottom. */
   setOrientation(side: Side): void;
@@ -54,6 +58,26 @@ function legalDests(position: Position): Dests {
 
 function colorOf(side: Side): 'white' | 'black' {
   return side === 'cho' ? 'white' : 'black';
+}
+
+/** Arrow brushes by rank for each side's candidate moves: the most searched move is the most opaque. */
+export const RANK_BRUSHES = 5;
+const RANK_OPACITY = [1, 0.82, 0.66, 0.52, 0.4];
+function rankBrushes(): Record<string, { key: string; color: string; opacity: number; lineWidth: number }> {
+  const out: Record<string, { key: string; color: string; opacity: number; lineWidth: number }> = {};
+  for (const [side, color] of [['cho', '#1d5bc4'], ['han', '#c42b1f']] as const) {
+    RANK_OPACITY.forEach((opacity, i) => {
+      out[`${side}${i}`] = { key: `${side[0]}r${i}`, color, opacity, lineWidth: 10 };
+    });
+  }
+  return out;
+}
+
+/** Badge drawn in the destination square's 100x100 box; `slot` stacks badges that share a square. */
+function badgeSvg(text: string, color: string, slot: number): string {
+  const y = 64 - slot * 30;
+  return `<rect x='14' y='${y}' width='72' height='28' rx='14' fill='${color}' stroke='#fff' stroke-width='2.5' opacity='0.95'/>` +
+    `<text x='50' y='${y + 20.5}' font-family='system-ui, sans-serif' font-size='19' font-weight='700' fill='#fff' text-anchor='middle'>${text}</text>`;
 }
 
 export function createBoardView(container: HTMLElement, position: Position, options: BoardViewOptions): BoardView {
@@ -87,12 +111,13 @@ export function createBoardView(container: HTMLElement, position: Position, opti
       },
     },
     draggable: { enabled: true, showGhost: true },
+    drawable: { brushes: rankBrushes() } as Config['drawable'],
     selectable: { enabled: true },
   };
 
   const api = Chessground(container, config);
 
-  function sync(next: Position, lastMove?: Move, animationDurationMs?: number): void {
+  function sync(next: Position, lastMove?: Move, animationDurationMs?: number, readOnly = false): void {
     api.set({
       fen: boardFen(next),
       turnColor: colorOf(next.sideToMove),
@@ -100,21 +125,28 @@ export function createBoardView(container: HTMLElement, position: Position, opti
       lastMove: lastMove && !lastMove.isPass ? [squareToKey(lastMove.from), squareToKey(lastMove.to)] : undefined,
       animation: animationDurationMs !== undefined ? { enabled: true, duration: animationDurationMs } : undefined,
       movable: {
-        color: movableColor(next),
-        dests: legalDests(next),
+        color: readOnly ? undefined : movableColor(next),
+        dests: readOnly ? new Map() : legalDests(next),
       },
     });
   }
 
   function setArrows(arrows: readonly BoardArrow[]): void {
-    api.setAutoShapes(
-      arrows.map((a) => ({
-        orig: squareToKey(a.from),
-        dest: squareToKey(a.to),
-        brush: a.brush,
-        modifiers: a.lineWidth !== undefined ? { lineWidth: a.lineWidth } : undefined,
-      })),
-    );
+    const badges = new Map<Square, number>();
+    const shapes: DrawShape[] = arrows.map((a) => ({
+      orig: squareToKey(a.from),
+      dest: squareToKey(a.to),
+      brush: a.brush,
+      modifiers: a.lineWidth !== undefined ? { lineWidth: a.lineWidth } : undefined,
+    }));
+    // Badges after the arrows so they are drawn on top.
+    for (const a of arrows) {
+      if (!a.label) continue;
+      const slot = badges.get(a.to) ?? 0;
+      badges.set(a.to, slot + 1);
+      shapes.push({ orig: squareToKey(a.to), customSvg: badgeSvg(a.label.text, a.label.color, slot) });
+    }
+    api.setAutoShapes(shapes);
   }
 
   return {
