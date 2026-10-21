@@ -16,11 +16,12 @@ needed), or run the web app locally (below).
 | Player | Ladder Elo (0 = Fairy-Stockfish NNUE at 1K nodes) |
 |---|---|
 | Full RL net, 800 visits (GPU) | ~2,490-2,520 |
-| Browser student, 800 visits | ~1,875 |
-| Browser student, 400 visits (in-browser preset, pychess bot) | ~1,627 |
+| Browser student v2, 400 visits, cpuct 1.2 (in-browser preset, pychess bot) | ~1,825 (estimate: v1 + 151 + 47) |
+| Browser student v1, 800 visits | ~1,875 |
+| Browser student v1, 400 visits | ~1,627 |
 | Original project's best (V3, 16 visits) | ~-1,424 |
 
-On a human scale, the browser level is estimated at about 2,200 on PyChess's Janggi rating scale
+On a human scale, the v1 browser level was estimated at about 2,200 on PyChess's Janggi rating scale
 (90% range ~1,950-2,475), above every established-rated player in PyChess's public game archive;
 see "P7: human-scale strength" in `docs/REBUILD_LOG.md`.
 

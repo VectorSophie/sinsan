@@ -188,6 +188,22 @@ the CPU through onnxruntime (`OnnxEvaluator`), so the browser model is rated fro
 In headless Chromium with cross-origin isolation the int8 student searches ~350 visits/s (400
 visits in about a second); single-threaded, without the COOP/COEP headers, about 80 visits/s.
 
+### Student v2 (2026-10-21)
+
+Two candidates trained on the same distillation data, compared head to head with v1 (tf192x6, 30K
+steps) at 400 visits on openings 300-499:
+
+| Candidate | Score vs v1 | Elo |
+|---|---|---|
+| v2: tf192x6, initialised from v1, lr 5e-4, 60K steps | 282/400 (70.5%) | +151 [+115, +191] |
+| tf256x6 from scratch, 60K steps, 267 visits (equal time) | 258/400 (64.5%) | +104 [+71, +139] |
+| tf256x6, 400 visits (about 1.5x the time) | 309/400 (77.2%) | +212 [+175, +254] |
+
+At equal thinking time v2 is the stronger, and it keeps the v1 size (10.7M, int8 ONNX 12MB,
+top-1 agreement with fp32 82%). cpuct 1.2 adds +47 [+16, +79] on v2. v2 replaced v1 in the web app
+and the pychess bot. Estimated ladder rating at 400 visits ~1,825 (1,627 + 151 + 47); a direct
+measurement of the int8 file against FSF 32K and 64K is pending.
+
 ### pychess.org BOT (2026-10-20)
 
 `training/pychess_bot.py` plays as the BOT account `sin-san` (token in the gitignored `.env`) through
