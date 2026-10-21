@@ -92,7 +92,7 @@ const valueToCp = (v: number): number => {
 type Child = [string, number, number | null, number];
 
 async function move(req: StudentRequest): Promise<Record<string, unknown>> {
-  const params = [req.cpuct ?? 1.745, req.fpu ?? 0.33, req.ptemp ?? 1.36] as const;
+  const params = [req.cpuct ?? 1.2, req.fpu ?? 0.33, req.ptemp ?? 1.36] as const;
   const key = params.join(',');
   if (!search || key !== searchParams) {
     search?.free();

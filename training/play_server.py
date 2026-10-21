@@ -67,7 +67,7 @@ RATED_NETS = [
 ]
 MAX_VISITS = 50_000
 MAX_TIME_MS = 60_000
-DEFAULTS = {"cpuct": 1.745, "fpu": 0.33, "ptemp": 1.36}
+DEFAULTS = {"cpuct": 1.2, "fpu": 0.33, "ptemp": 1.36}
 # Fixed reference networks offered next to the live RL net (ladder ratings vs FSF, docs/REBUILD_LOG.md).
 REFERENCE_NETS = [
     ("p3", "Before RL (60M supervised, ~2250)", "runs/p3-tf512x12/ema-0052000.pt"),

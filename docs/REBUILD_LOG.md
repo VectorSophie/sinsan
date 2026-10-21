@@ -101,6 +101,12 @@ Ladder rating about +2250, above every FSF setting on the ladder.
 
 Defaults kept; cpuct ~1.2 to be confirmed with a longer SPRT on the main net.
 
+Confirmation on round-16 weights (800 visits; search is deterministic, so a disjoint opening set):
+cpuct 1.2 vs 1.745 scored +42 [-8, +94] on openings 0-199 and +35 [+3, +67] (220/400) on openings
+100-299, about +38 pooled. On the browser student (v2, 400 visits) it scored +47 [+16, +79].
+Play-time searches (play_server, web app, pychess bot) now use cpuct 1.2; self-play keeps the engine
+default 1.745 so the RL run is unchanged. Ladder ratings above were measured at 1.745.
+
 ## P5: self-play RL
 
 `rl1` started from `p3-tf512x12` on both GPUs: Gumbel self-play (200/32 visits, p_full 0.25)
