@@ -94,6 +94,7 @@ app.innerHTML = `
         <div class="sinsan-controls">
           <button id="undo-btn" title="Take back your last move (U)">Undo</button>
           <button id="flip-btn" title="Turn the board around (F)">Flip</button>
+          <button id="arrows-btn" class="toggle" aria-pressed="true" title="Show the replies Sinsan expects, with their win chances (A)">Arrows</button>
           <button id="pass-btn">Pass</button>
           <button id="hint-btn" title="Ask Sinsan for the best move in your position">Hint</button>
           <button id="threat-btn" title="Show what your opponent could do if you passed">Threat</button>
@@ -139,6 +140,7 @@ const evalBarFill = $<HTMLDivElement>('.eval-bar-fill');
 const evalBarNum = $<HTMLSpanElement>('.eval-bar-num');
 const undoBtn = $<HTMLButtonElement>('#undo-btn');
 const flipBtn = $<HTMLButtonElement>('#flip-btn');
+const arrowsBtn = $<HTMLButtonElement>('#arrows-btn');
 const materialEls = { top: $<HTMLDivElement>('#material-top'), bottom: $<HTMLDivElement>('#material-bottom') };
 /** The analysis panel's latest win chance for `viewer` (the eval bar shows it for the bottom side). */
 let viewerWin: number | null = null;
@@ -543,6 +545,20 @@ function confirmNewGame(): boolean {
   return gameOver || uciMoves.length < 4 || humanSides().length === 0 || confirm('Start a new game? The current one will be lost.');
 }
 
+const ARROWS_KEY = 'sinsan.arrows.v1';
+function setArrows(on: boolean): void {
+  arrowsBtn.setAttribute('aria-pressed', String(on));
+  panel.setAutoArrows(on);
+  try {
+    localStorage.setItem(ARROWS_KEY, on ? '1' : '0');
+  } catch {
+    // not remembered without storage
+  }
+}
+function toggleArrows(): void {
+  setArrows(arrowsBtn.getAttribute('aria-pressed') !== 'true');
+}
+
 const SETUP_KEY = 'sinsan.setup.v1';
 function saveSetup(): void {
   try {
@@ -573,6 +589,7 @@ newGameBtn.addEventListener('click', () => {
 });
 undoBtn.addEventListener('click', undo);
 flipBtn.addEventListener('click', flip);
+arrowsBtn.addEventListener('click', toggleArrows);
 hintBtn.addEventListener('click', () => void showHint('hint'));
 threatBtn.addEventListener('click', () => void showHint('threat'));
 for (const side of SIDES) {
@@ -590,10 +607,16 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') panel.exitView();
   else if (e.key === 'u' || e.key === 'U') undo();
   else if (e.key === 'f' || e.key === 'F') flip();
+  else if (e.key === 'a' || e.key === 'A') toggleArrows();
 });
 
 restoreSetup();
 newGame();
+try {
+  if (localStorage.getItem(ARROWS_KEY) === '0') setArrows(false);
+} catch {
+  // default: arrows on
+}
 
 /** Adds measured ladder ratings to the Sinsan preset options (FSF options carry theirs already). */
 async function labelPresetRatings(): Promise<void> {

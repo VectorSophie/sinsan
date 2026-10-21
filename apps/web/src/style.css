@@ -1397,3 +1397,9 @@ body {
   padding: 0.05rem 0.6rem;
   font-size: 0.85rem;
 }
+
+/* On/off buttons (Arrows): pressed looks filled. */
+button.toggle[aria-pressed='true'] {
+  background: color-mix(in srgb, var(--sinsan-accent) 22%, transparent);
+  border-color: var(--sinsan-accent);
+}

@@ -81,6 +81,9 @@ export interface AnalysisPanel {
   truncate(ply: number): void;
   /** Leaves an inspected earlier position and returns to the game. */
   exitView(): void;
+  /** Whether the board shows Sinsan's expected replies by itself during play (hints, hovering and
+   * inspecting always show theirs). */
+  setAutoArrows(on: boolean): void;
   addAnalysis(ply: number, before: Position, analysis: ServerAnalysis): void;
   noteMove(ply: number, before: Position, move: Move, fsf?: FsfInfo): void;
   gameOver(result: GameResult): void;
@@ -288,6 +291,7 @@ export function createAnalysisPanel(container: HTMLElement, callbacks: PanelCall
   let humans: readonly Side[] = [];
   let live = true; // the selected entry is the latest move: arrows match the board
   let viewing = false; // the board shows the selected entry's position (inspecting a search)
+  let autoArrows = true;
   let hintArrows: BoardArrow[] | null = null;
 
   const who = (side: Side) => names[side];
@@ -456,6 +460,7 @@ export function createAnalysisPanel(container: HTMLElement, callbacks: PanelCall
    * its top one. During play (the board is past Sinsan's move): the replies it considered to that
    * move, then its own planned answers to the likeliest reply. */
   function defaultArrows(entry: Entry): BoardArrow[] {
+    if (!viewing && !autoArrows) return [];
     const first = viewing
       ? childOptions(entry, -1)
       : childOptions(entry, entry.analysis.tree.findIndex((r) => r[0] === -1 && r[2] === entry.analysis.move));
@@ -790,6 +795,10 @@ export function createAnalysisPanel(container: HTMLElement, callbacks: PanelCall
       callbacks.onEval(winFor(entries[entries.length - 1]!, viewer));
     },
     exitView,
+    setAutoArrows(on) {
+      autoArrows = on;
+      if (!hintArrows) showArrows(selected >= 0 ? defaultArrows(entries[selected]!) : []);
+    },
     addAnalysis(ply, before, analysis) {
       exitView();
       clearHint();
