@@ -66,6 +66,7 @@ RATED_NETS = [
     ("rl1-it18", "After RL round 18 (final)"),
     ("student", "In-browser student v1 (10.7M)"),
     ("student-v2", "In-browser student v2 (10.7M, int8, 400 visits)", 400),
+    ("student-v3", "In-browser student v3 (10.7M, int8, 400 visits)", 400),
 ]
 MAX_VISITS = 50_000
 MAX_TIME_MS = 60_000

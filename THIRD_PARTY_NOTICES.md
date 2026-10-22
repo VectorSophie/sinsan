@@ -76,6 +76,18 @@ Entry template:
 - Required attribution: credit Kadagaden per CC BY 4.0 terms
 - Redistribution obligations: CC BY 4.0 attribution requirement only; no copyleft propagation to Sinsan's own code
 
+## Lucide
+
+- Original project: lucide-icons/lucide
+- Original author(s): Lucide Icons and Contributors; icons derived from Feather by Cole Bemis
+- Exact file(s)/directory used: `lucide` npm package dependency (icon definitions bundled into the web app)
+- Original license: ISC (verified: package `LICENSE`), with the Feather-derived icons under MIT
+- Commit / release / version pinned: package version `1.54.0` (npm)
+- Modified: no
+- Used by Sinsan for: toolbar icons in `apps/web`
+- Required attribution: keep the ISC and MIT copyright and permission notices
+- Redistribution obligations: notice preservation only; both licenses are compatible with AGPL-3.0
+
 ## chessgroundx
 
 - Original project: gbtami/chessgroundx
