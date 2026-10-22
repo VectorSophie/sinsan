@@ -1,6 +1,6 @@
 {
- "name": "Sinsan student tf192x6 v2",
- "checkpoint": "runs/student-tf192x6-v2/ema-0060000.pt",
+ "name": "Sinsan student tf192x6 v3",
+ "checkpoint": "runs/student-tf192x6-v3a/ema-0080000.pt",
  "net": {
   "arch": "transformer",
   "channels": 192,
@@ -14,11 +14,11 @@
  "params": 10745577,
  "int8": true,
  "bytes": 12117355,
- "sha256": "9991d82435393fd38bf01d965d7cfc9028994ee75768c89f8d0de63501f8f494",
+ "sha256": "5c9d924cef3e2c1534e3556b1364a8058d66014ea1e5c61a7e8a34f39697ebfe",
  "parity": {
-  "top1_agreement": 0.82421875,
-  "policy_kl": 0.003800952193688439,
-  "value_mae": 0.020514756441116333,
-  "margin_mae": 0.5277958512306213
+  "top1_agreement": 0.828125,
+  "policy_kl": 0.004521896389288935,
+  "value_mae": 0.03657922148704529,
+  "margin_mae": 0.5839537978172302
  }
 }

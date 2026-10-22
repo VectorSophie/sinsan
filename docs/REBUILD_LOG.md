@@ -211,6 +211,27 @@ and the pychess bot. The shipped int8 file at 400 visits and cpuct 1.2, rated di
 About 1,850, up from v1's 1,627 at the same visits (+225; the sum of the two head-to-head gains,
 +198, was close).
 
+### Student v3 (2026-10-22)
+
+Two candidates initialised from v2, 80K more steps at lr 3e-4 on all 320 chunks of RL self-play
+(student-sp3) mixed with the distillation data, compared head to head with v2 at 400 visits and
+cpuct 1.2 on openings 500-699:
+
+| Candidate | Self-play fraction | Score vs v2 | Elo |
+|---|---|---|---|
+| v3a | 0.6 | 252/400 (63.0%) | +92 [+59, +128] |
+| v3b | 0.85 | 198/400 (49.5%) | -3 [-35, +28] |
+
+Too much self-play data stopped helping. v3a (int8 top-1 agreement with fp32 82.8%) replaced v2 in
+the web app and the pychess bot. The shipped int8 file at 400 visits and cpuct 1.2, rated directly:
+
+| Opponent | Score | Ladder Elo |
+|---|---|---|
+| FSF NNUE 64K nodes | 144/200 (72.0%), +164 [+112, +224] | 1,935 |
+| FSF NNUE 32K nodes | 176/200 (88.0%), +346 [+283, +435] | 1,838 |
+
+About 1,890, up from v2's 1,850 (+36; the head-to-head said +92, though the ranges overlap).
+
 ### RL stopped (2026-10-21)
 
 Rounds 17-21 gated at -2, +3 (promoted), -17, -7 and -30: no progress over the last eight rounds.

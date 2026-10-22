@@ -6,7 +6,7 @@ WebAssembly, with a 10.7M-parameter int8 network of about 12 MB). It started in 
 [millionco/moka](https://github.com/millionco/moka)'s approach to Go - reimagined for Janggi's own
 rules, action space, and product identity rather than mechanically reskinned. The original goal of a
 model under 500 KiB was dropped in the rebuild in favour of strength: the browser model is about
-12 MB and plays at about 1,850 on the Fairy-Stockfish ladder below. See
+12 MB and plays at about 1,890 on the Fairy-Stockfish ladder below. See
 `docs/RESEARCH.md` and `docs/PRODUCT_VISION.md` for why this project exists and what it is and
 isn't trying to be.
 
@@ -16,7 +16,8 @@ needed), or run the web app locally (below).
 | Player | Ladder Elo (0 = Fairy-Stockfish NNUE at 1K nodes) |
 |---|---|
 | Full RL net, 800 visits (GPU) | ~2,490 |
-| Browser student v2, 400 visits (in-browser preset, pychess bot) | ~1,850 |
+| Browser student v3, 400 visits (in-browser preset, pychess bot) | ~1,890 |
+| Browser student v2, 400 visits | ~1,850 |
 | Browser student v1, 800 visits | ~1,875 |
 | Browser student v1, 400 visits | ~1,627 |
 | Original project's best (V3, 16 visits) | ~-1,424 |
@@ -391,6 +392,8 @@ on-policy refinement not yet), `apps/` (web: playable board implemented; arena n
   ([gbtami/fairyfishnet](https://github.com/gbtami/fairyfishnet)) are reproduced for rating anchors.
 - **[Fairy-Stockfish](https://github.com/fairy-stockfish/Fairy-Stockfish)**: the teacher engine, the
   rules reference, and the analysis engine for the human-rating estimate.
+- **[Lucide](https://lucide.dev)**: the icons on the web app's toolbar (ISC; icons derived from
+  Feather, MIT).
 
 ## License
 
